@@ -2,7 +2,7 @@
     "$schema": "https://getcomposer.org/schema.json",
     "name": "laraowl/laraowl",
     "type": "project",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "description": "LaraOwl - The ultimate open-source, self-hosted monitoring platform for Laravel.",
     "keywords": [
         "laravel",
