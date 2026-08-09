@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Concerns\GeneratesUniqueProjectSlugs;
+use App\Support\ProjectContext;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 
-class Project extends Model implements HasMedia
+class Project extends Model implements HasMedia, ProjectContext
 {
     use GeneratesUniqueProjectSlugs, HasFactory, InteractsWithMedia;
 
@@ -77,6 +78,29 @@ class Project extends Model implements HasMedia
     public function getRouteKeyName(): string
     {
         return 'slug';
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    public function projectIds(): array
+    {
+        return [$this->id];
+    }
+
+    public function isAggregate(): bool
+    {
+        return false;
+    }
+
+    public function contextLabel(): string
+    {
+        return $this->name;
+    }
+
+    public function contextSlug(): string
+    {
+        return $this->slug;
     }
 
     /**

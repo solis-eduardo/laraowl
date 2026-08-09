@@ -32,6 +32,7 @@ export default function Dashboard({
     duration_stats,
     total_exceptions,
     timeSeries,
+    exceptionTimeSeries,
     job_stats,
     impacted_users,
     active_users,
@@ -44,6 +45,7 @@ export default function Dashboard({
 }: any) {
     const { props }: any = usePage();
     const currentProject = props.current_project || props.currentProject;
+    const isAggregate = Boolean(currentProject?.is_aggregate);
     const teamSlug = props.current_team?.slug || props.currentTeam?.slug;
     const projectSlug = currentProject?.slug;
     const monitoringHref = (path: string) =>
@@ -55,6 +57,12 @@ export default function Dashboard({
 
     useLiveReload(currentProject?.id);
 
+    const exceptionSeries = exceptionTimeSeries?.slice(-20) || [];
+    const maxExceptionCount = exceptionSeries.reduce(
+        (max: number, d: any) => Math.max(max, d.total || 0),
+        0,
+    );
+
     return (
         <>
             <Head title={`Dashboard - ${currentProject?.name}`} />
@@ -65,38 +73,77 @@ export default function Dashboard({
                     {/* Uptime Status */}
                     <Card className="relative overflow-hidden border-border bg-card shadow-2xl lg:col-span-4">
                         <div
-                            className={`absolute top-0 right-0 h-24 w-24 translate-x-8 -translate-y-8 rounded-full opacity-20 blur-3xl ${uptime_status?.current === 'up' ? 'bg-emerald-500' : 'bg-red-500'}`}
+                            className={`absolute top-0 right-0 h-24 w-24 translate-x-8 -translate-y-8 rounded-full opacity-20 blur-3xl ${
+                                isAggregate
+                                    ? uptime_status?.down
+                                        ? 'bg-red-500'
+                                        : 'bg-emerald-500'
+                                    : uptime_status?.current === 'up'
+                                      ? 'bg-emerald-500'
+                                      : 'bg-red-500'
+                            }`}
                         />
                         <CardContent className="p-8">
                             <div className="mb-6 flex items-center justify-between">
                                 <div className="text-[10px] font-black tracking-widest text-muted-foreground uppercase opacity-50">
                                     Availability
                                 </div>
-                                <Badge
-                                    className={`h-5 gap-1.5 border-none px-2 text-[9px] font-black uppercase ${
-                                        uptime_status?.current === 'up'
-                                            ? 'bg-emerald-500/10 text-emerald-500'
-                                            : uptime_status?.current === 'down'
-                                              ? 'bg-red-500/10 text-red-500'
-                                              : 'bg-muted text-muted-foreground'
-                                    }`}
-                                >
-                                    <span
-                                        className={`size-1.5 rounded-full ${uptime_status?.current === 'up' ? 'animate-pulse bg-emerald-500' : 'bg-red-500'}`}
-                                    />
-                                    {uptime_status?.current || 'Monitoring...'}
-                                </Badge>
+                                {isAggregate ? (
+                                    <div className="flex items-center gap-1.5">
+                                        <Badge className="h-5 gap-1.5 border-none bg-emerald-500/10 px-2 text-[9px] font-black text-emerald-500 uppercase">
+                                            <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
+                                            {uptime_status?.up ?? 0} UP
+                                        </Badge>
+                                        <Badge className="h-5 gap-1.5 border-none bg-red-500/10 px-2 text-[9px] font-black text-red-500 uppercase">
+                                            <span className="size-1.5 rounded-full bg-red-500" />
+                                            {uptime_status?.down ?? 0} DOWN
+                                        </Badge>
+                                    </div>
+                                ) : (
+                                    <Badge
+                                        className={`h-5 gap-1.5 border-none px-2 text-[9px] font-black uppercase ${
+                                            uptime_status?.current === 'up'
+                                                ? 'bg-emerald-500/10 text-emerald-500'
+                                                : uptime_status?.current ===
+                                                    'down'
+                                                  ? 'bg-red-500/10 text-red-500'
+                                                  : 'bg-muted text-muted-foreground'
+                                        }`}
+                                    >
+                                        <span
+                                            className={`size-1.5 rounded-full ${uptime_status?.current === 'up' ? 'animate-pulse bg-emerald-500' : 'bg-red-500'}`}
+                                        />
+                                        {uptime_status?.current ||
+                                            'Monitoring...'}
+                                    </Badge>
+                                )}
                             </div>
                             <div className="mb-2 text-3xl font-black tracking-tighter text-foreground">
-                                {uptime_status?.current === 'up'
-                                    ? 'All Systems Operational'
-                                    : uptime_status?.current === 'down'
-                                      ? 'Service Disruption'
-                                      : 'Awaiting Data'}
+                                {isAggregate
+                                    ? !uptime_status?.up && !uptime_status?.down
+                                        ? 'Awaiting Data'
+                                        : !uptime_status?.down
+                                          ? 'All Systems Operational'
+                                          : !uptime_status?.up
+                                            ? 'Service Disruption'
+                                            : `${uptime_status.up} out of ${uptime_status.total} Systems Operational`
+                                    : uptime_status?.current === 'up'
+                                      ? 'All Systems Operational'
+                                      : uptime_status?.current === 'down'
+                                        ? 'Service Disruption'
+                                        : 'Awaiting Data'}
                             </div>
                             <p className="text-[10px] font-medium tracking-tight text-muted-foreground uppercase">
                                 {uptime_status?.last_check
-                                    ? `Last check: ${new Date(uptime_status.last_check).toLocaleTimeString()}`
+                                    ? `Last check: ${
+                                          isAggregate
+                                              ? new Date(
+                                                    uptime_status.last_check,
+                                                ).toLocaleString()
+                                              : new Date(
+                                                    uptime_status.last_check,
+                                                ).toLocaleTimeString()
+                                      }`
                                     : 'Configuring monitor...'}
                             </p>
                         </CardContent>
@@ -568,30 +615,25 @@ export default function Dashboard({
 
                             <div className="mt-auto pt-8">
                                 <div className="mb-8 flex h-[100px] w-full items-end gap-1">
-                                    {timeSeries
-                                        ?.slice(-20)
-                                        .map((d: any, i: number) => (
+                                    {exceptionSeries.map(
+                                        (d: any, i: number) => (
                                             <div
                                                 key={i}
                                                 className="group relative flex-1 rounded-t-sm bg-red-500/10"
                                                 style={{
-                                                    height: `${total_exceptions > 0 ? Math.min(100, (((d.client_error || 0) + (d.server_error || 0)) / total_exceptions) * 100) : 0}%`,
+                                                    height: `${maxExceptionCount > 0 ? Math.min(100, ((d.total || 0) / maxExceptionCount) * 100) : 0}%`,
                                                     minHeight:
-                                                        (d.client_error || 0) +
-                                                            (d.server_error ||
-                                                                0) >
-                                                        0
+                                                        (d.total || 0) > 0
                                                             ? '4px'
                                                             : '2px',
                                                 }}
                                             >
-                                                {(d.client_error || 0) +
-                                                    (d.server_error || 0) >
-                                                    0 && (
+                                                {(d.total || 0) > 0 && (
                                                     <div className="absolute inset-0 rounded-t-sm bg-red-500" />
                                                 )}
                                             </div>
-                                        ))}
+                                        ),
+                                    )}
                                 </div>
                                 <div className="mb-6 flex items-center gap-4 text-[9px] font-black tracking-widest text-muted-foreground/60 uppercase">
                                     <div className="flex items-center gap-1.5">
@@ -934,14 +976,28 @@ export default function Dashboard({
                                                                     }
                                                                 </div>
                                                                 <div className="flex items-center gap-2">
-                                                                    <div className="h-2 w-2 rounded-full bg-orange-500" />
+                                                                    <div className="h-2 w-2 rounded-full bg-emerald-500" />
                                                                     <span className="text-[10px] font-medium text-muted-foreground uppercase">
-                                                                        Requests:
+                                                                        Auth:
                                                                     </span>
                                                                     <span className="text-[10px] font-bold text-foreground">
                                                                         {formatCompactNumber(
                                                                             payload[0]
-                                                                                .value,
+                                                                                .payload
+                                                                                .authed,
+                                                                        )}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <div className="h-2 w-2 rounded-full bg-orange-500" />
+                                                                    <span className="text-[10px] font-medium text-muted-foreground uppercase">
+                                                                        Guest:
+                                                                    </span>
+                                                                    <span className="text-[10px] font-bold text-foreground">
+                                                                        {formatCompactNumber(
+                                                                            payload[0]
+                                                                                .payload
+                                                                                .guest,
                                                                         )}
                                                                     </span>
                                                                 </div>
@@ -953,7 +1009,13 @@ export default function Dashboard({
                                                 }}
                                             />
                                             <Bar
-                                                dataKey="total"
+                                                dataKey="authed"
+                                                stackId="requests"
+                                                fill="#10b981"
+                                            />
+                                            <Bar
+                                                dataKey="guest"
+                                                stackId="requests"
                                                 fill="#f59e0b"
                                                 radius={[1, 1, 0, 0]}
                                             />

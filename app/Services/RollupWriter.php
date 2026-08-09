@@ -686,13 +686,12 @@ class RollupWriter
      */
     protected function applyScheduledTask(array &$deltas, array $payload): void
     {
-        if (($payload['status'] ?? null) === 'skipped') {
-            $deltas['neutral_count'] = 1;
-
-            return;
-        }
-
-        $this->applyExitCode($deltas, $payload);
+        match ($payload['status'] ?? null) {
+            'skipped' => $deltas['neutral_count'] = 1,
+            'processed' => $deltas['ok_count'] = 1,
+            'failed' => $deltas['server_error_count'] = 1,
+            default => null,
+        };
     }
 
     /**

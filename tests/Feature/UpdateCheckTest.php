@@ -52,14 +52,11 @@ function instanceOperator(): User
 }
 
 beforeEach(function () {
-    Version::flush();
     config(['laraowl.update_check.enabled' => true]);
 });
 
-test('the current version is read from composer.json', function () {
-    $composer = json_decode((string) file_get_contents(base_path('composer.json')), true);
-
-    expect(Version::current())->toBe($composer['version'])
+test('the current version is a hardcoded, well-formed semver constant', function () {
+    expect(Version::current())->toBe(Version::CURRENT)
         ->and(Version::current())->toMatch('/^\d+\.\d+\.\d+$/');
 });
 

@@ -3,10 +3,12 @@
 namespace App\Models;
 
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\DB;
 
 class Record extends Model
@@ -95,15 +97,38 @@ class Record extends Model
 
     /**
      * Get the prunable model query.
+     *
+     * Set-based on purpose: a correlated `whereExists` against `projects`
+     * lets the database evaluate the retention cutoff per row, so this stays
+     * a single query regardless of project count instead of fetching every
+     * project into PHP and building one `orWhere` per project.
      */
-    public function prunable()
+    public function prunable(): Builder
     {
-        return static::whereExists(function ($query) {
+        return static::query()->whereExists(function (QueryBuilder $query) {
             $query->select(DB::raw(1))
                 ->from('projects')
                 ->whereColumn('projects.id', 'records.project_id')
                 ->where('projects.retention_days', '>', 0)
-                ->whereRaw('records.created_at < DATE_SUB(NOW(), INTERVAL projects.retention_days DAY)');
+                ->whereRaw($this->retentionCutoffSql());
         });
+    }
+
+    /**
+     * SQL fragment comparing `records.created_at` against the per-project
+     * retention cutoff (`now() - projects.retention_days days`).
+     *
+     * `DATE_SUB(... INTERVAL ... DAY)` is MySQL-only syntax, so the interval
+     * arithmetic is expressed per-driver: Postgres (production) can multiply
+     * an `INTERVAL` by the `retention_days` column directly; SQLite (tests)
+     * builds the `datetime()` modifier via string concatenation instead.
+     */
+    private function retentionCutoffSql(): string
+    {
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            return "records.created_at < datetime('now', '-' || projects.retention_days || ' days')";
+        }
+
+        return "records.created_at < NOW() - (INTERVAL '1 day' * projects.retention_days)";
     }
 }
