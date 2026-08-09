@@ -189,7 +189,6 @@ class RecordService
      */
     public function getUserStats(ProjectContext $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
-        $user = $this->jsonValue('user');
         $statusCode = $this->jsonNumeric('status_code');
         $userHash = "MD5(COALESCE({$this->jsonText('user')}, 'Anonymous'))";
 
@@ -267,8 +266,6 @@ class RecordService
      */
     public function getExceptionStats(ProjectContext $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
-        $userDistinct = $this->jsonDistinct('user');
-
         $overview = $this->rollupTotals($project, 'exception', $period, $from, $to);
 
         $uniqueTypes = $this->distinctGroups($project, 'exception', $period, $from, $to);
@@ -340,7 +337,6 @@ class RecordService
     public function getScheduledTaskStats(ProjectContext $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
         $exitCode = $this->jsonNumeric('exit_code');
-        $exitCodeValue = $this->jsonValue('exit_code');
         $duration = $this->jsonNumeric('duration');
         $status = $this->jsonText('status');
 
@@ -474,7 +470,6 @@ class RecordService
      */
     public function getNotificationStats(ProjectContext $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
-        $channel = $this->jsonDistinct('channel');
         $status = $this->jsonText('status');
 
         $overview = $this->rollupTotals($project, 'notification', $period, $from, $to);

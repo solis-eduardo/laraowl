@@ -8,13 +8,27 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * SQL-building helpers shared by services that read the `record_rollups` /
- * `record_user_buckets` family of tables: driver-aware JSON payload
- * extraction, identifier quoting, time-bucket formatting, and the small bits
- * of arithmetic (average duration, time-series gap filling) that don't
- * belong to any one project.
+ * `record_user_buckets` family of tables: JSON payload extraction,
+ * identifier quoting, time-bucket formatting, and the small bits of
+ * arithmetic (average duration, time-series gap filling) that don't belong
+ * to any one project.
  *
- * Used by {@see RecordService}, so the MySQL/PostgreSQL branching lives in
- * exactly one place.
+ * Every JSON path used against `payload` is a single top-level key (see
+ * callers), so extraction uses the `->>` operator, which both PostgreSQL's
+ * `json` type and SQLite's JSON1 extension support — no driver branching
+ * needed there. The one gotcha: PostgreSQL's `->>` always returns text,
+ * while SQLite's returns the value in its native type (an integer stays an
+ * integer), which breaks equality/`whereIn` comparisons against bound
+ * string parameters. {@see jsonText} casts to text explicitly so both
+ * engines behave the same way.
+ *
+ * Branching remains only where the two engines genuinely disagree: casting
+ * arbitrary text to a number (Postgres errors on non-numeric input, SQLite
+ * doesn't, see {@see jsonNumeric}) and formatting a date into a bucket
+ * string (Postgres' `to_char` tokens vs. `strftime`-style `%` tokens, see
+ * {@see timeBucketSql}).
+ *
+ * Used by {@see RecordService}.
  */
 trait BuildsRollupQueries
 {
@@ -23,36 +37,9 @@ trait BuildsRollupQueries
         return DB::connection()->getDriverName() === 'pgsql';
     }
 
-    private function jsonPathSegments(string $path): array
-    {
-        return explode('.', $path);
-    }
-
-    private function quoteLiteral(string $value): string
-    {
-        return "'".str_replace("'", "''", $value)."'";
-    }
-
-    private function jsonValue(string $path): string
-    {
-        if ($this->isPgsql()) {
-            $segments = array_map([$this, 'quoteLiteral'], $this->jsonPathSegments($path));
-
-            return 'payload #> ARRAY['.implode(', ', $segments).']';
-        }
-
-        return "JSON_EXTRACT(payload, '$.".$path."')";
-    }
-
     private function jsonText(string $path): string
     {
-        if ($this->isPgsql()) {
-            $segments = array_map([$this, 'quoteLiteral'], $this->jsonPathSegments($path));
-
-            return 'payload #>> ARRAY['.implode(', ', $segments).']';
-        }
-
-        return "JSON_UNQUOTE(JSON_EXTRACT(payload, '$.".$path."'))";
+        return "CAST(payload ->> '{$path}' AS TEXT)";
     }
 
     private function jsonNumeric(string $path): string
@@ -66,15 +53,6 @@ trait BuildsRollupQueries
         }
 
         return "CAST(NULLIF({$text}, '') AS DECIMAL(20,6))";
-    }
-
-    private function jsonDistinct(string $path): string
-    {
-        if ($this->isPgsql()) {
-            return '('.$this->jsonValue($path).')::text';
-        }
-
-        return 'CAST('.$this->jsonValue($path).' AS CHAR)';
     }
 
     private function timeBucketSql(string $period, string $column = 'created_at'): string
