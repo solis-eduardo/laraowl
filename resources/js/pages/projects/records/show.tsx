@@ -14,6 +14,11 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import AppLayout from '@/layouts/app-layout';
 
 export default function RecordShow({
@@ -341,52 +346,60 @@ export default function RecordShow({
 
                 {/* Headers Card */}
                 <Card className="border-border bg-card shadow-2xl">
-                    <div
-                        className="flex cursor-pointer items-center justify-between p-4 transition-colors hover:bg-muted/30"
-                        onClick={() => setExpandedHeaders(!expandedHeaders)}
+                    <Collapsible
+                        open={expandedHeaders}
+                        onOpenChange={setExpandedHeaders}
                     >
-                        <h3 className="text-xs font-bold text-foreground uppercase">
-                            Headers
-                        </h3>
-                        <div className="flex h-5 w-5 items-center justify-center rounded bg-muted">
-                            {expandedHeaders ? (
-                                <ChevronDown className="h-3 w-3" />
-                            ) : (
-                                <ChevronRight className="h-3 w-3" />
-                            )}
-                        </div>
-                    </div>
-                    {expandedHeaders && (
-                        <div className="border-t border-border p-6 text-xs">
-                            {(() => {
-                                let headersObj = payload.headers || {};
+                        <CollapsibleTrigger asChild>
+                            <div className="flex cursor-pointer items-center justify-between p-4 transition-colors hover:bg-muted/30">
+                                <h3 className="text-xs font-bold text-foreground uppercase">
+                                    Headers
+                                </h3>
+                                <div className="flex h-5 w-5 items-center justify-center rounded bg-muted">
+                                    {expandedHeaders ? (
+                                        <ChevronDown className="h-3 w-3" />
+                                    ) : (
+                                        <ChevronRight className="h-3 w-3" />
+                                    )}
+                                </div>
+                            </div>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                            <div className="border-t border-border p-6 text-xs">
+                                {(() => {
+                                    let headersObj = payload.headers || {};
 
-                                if (typeof headersObj === 'string') {
-                                    try {
-                                        headersObj = JSON.parse(headersObj);
-                                    } catch {
-                                        // ignore
+                                    if (typeof headersObj === 'string') {
+                                        try {
+                                            headersObj = JSON.parse(headersObj);
+                                        } catch {
+                                            // ignore
+                                        }
                                     }
-                                }
 
-                                return (
-                                    <SyntaxHighlighter
-                                        language="json"
-                                        style={vscDarkPlus}
-                                        customStyle={{
-                                            margin: 0,
-                                            borderRadius: '0.5rem',
-                                            border: '1px solid hsl(var(--border))',
-                                        }}
-                                        wrapLines={true}
-                                        wrapLongLines={true}
-                                    >
-                                        {JSON.stringify(headersObj, null, 4)}
-                                    </SyntaxHighlighter>
-                                );
-                            })()}
-                        </div>
-                    )}
+                                    return (
+                                        <SyntaxHighlighter
+                                            language="json"
+                                            style={vscDarkPlus}
+                                            customStyle={{
+                                                margin: 0,
+                                                borderRadius: '0.5rem',
+                                                border: '1px solid hsl(var(--border))',
+                                            }}
+                                            wrapLines={true}
+                                            wrapLongLines={true}
+                                        >
+                                            {JSON.stringify(
+                                                headersObj,
+                                                null,
+                                                4,
+                                            )}
+                                        </SyntaxHighlighter>
+                                    );
+                                })()}
+                            </div>
+                        </CollapsibleContent>
+                    </Collapsible>
                 </Card>
 
                 {/* Request Payload Card */}
@@ -414,42 +427,44 @@ export default function RecordShow({
 
                     return (
                         <Card className="border-border bg-card shadow-2xl">
-                            <div
-                                className="flex cursor-pointer items-center justify-between p-4 transition-colors hover:bg-muted/30"
-                                onClick={() =>
-                                    setExpandedPayload(!expandedPayload)
-                                }
+                            <Collapsible
+                                open={expandedPayload}
+                                onOpenChange={setExpandedPayload}
                             >
-                                <h3 className="text-xs font-bold text-foreground uppercase">
-                                    Request Payload
-                                </h3>
-                                <div className="flex h-5 w-5 items-center justify-center rounded bg-muted">
-                                    {expandedPayload ? (
-                                        <ChevronDown className="h-3 w-3" />
-                                    ) : (
-                                        <ChevronRight className="h-3 w-3" />
-                                    )}
-                                </div>
-                            </div>
-                            {expandedPayload && (
-                                <div className="border-t border-border p-6 text-xs">
-                                    <SyntaxHighlighter
-                                        language="json"
-                                        style={vscDarkPlus}
-                                        customStyle={{
-                                            margin: 0,
-                                            borderRadius: '0.5rem',
-                                            border: '1px solid hsl(var(--border))',
-                                        }}
-                                        wrapLines={true}
-                                        wrapLongLines={true}
-                                    >
-                                        {typeof body === 'string'
-                                            ? body
-                                            : JSON.stringify(body, null, 4)}
-                                    </SyntaxHighlighter>
-                                </div>
-                            )}
+                                <CollapsibleTrigger asChild>
+                                    <div className="flex cursor-pointer items-center justify-between p-4 transition-colors hover:bg-muted/30">
+                                        <h3 className="text-xs font-bold text-foreground uppercase">
+                                            Request Payload
+                                        </h3>
+                                        <div className="flex h-5 w-5 items-center justify-center rounded bg-muted">
+                                            {expandedPayload ? (
+                                                <ChevronDown className="h-3 w-3" />
+                                            ) : (
+                                                <ChevronRight className="h-3 w-3" />
+                                            )}
+                                        </div>
+                                    </div>
+                                </CollapsibleTrigger>
+                                <CollapsibleContent>
+                                    <div className="border-t border-border p-6 text-xs">
+                                        <SyntaxHighlighter
+                                            language="json"
+                                            style={vscDarkPlus}
+                                            customStyle={{
+                                                margin: 0,
+                                                borderRadius: '0.5rem',
+                                                border: '1px solid hsl(var(--border))',
+                                            }}
+                                            wrapLines={true}
+                                            wrapLongLines={true}
+                                        >
+                                            {typeof body === 'string'
+                                                ? body
+                                                : JSON.stringify(body, null, 4)}
+                                        </SyntaxHighlighter>
+                                    </div>
+                                </CollapsibleContent>
+                            </Collapsible>
                         </Card>
                     );
                 })()}
