@@ -4,6 +4,7 @@ use App\Enums\TeamRole;
 use App\Models\Team;
 use App\Models\TeamInvitation;
 use App\Models\User;
+use App\Notifications\Teams\TeamInvitation as TeamInvitationNotification;
 use Illuminate\Support\Facades\Notification;
 
 test('a member can be invited and defaults to the team owner as inviter', function () {
@@ -25,7 +26,7 @@ test('a member can be invited and defaults to the team owner as inviter', functi
         'invited_by' => $owner->id,
     ]);
 
-    Notification::assertSentOnDemand(\App\Notifications\Teams\TeamInvitation::class);
+    Notification::assertSentOnDemand(TeamInvitationNotification::class);
 });
 
 test('invitation email can be skipped with --no-notify', function () {
