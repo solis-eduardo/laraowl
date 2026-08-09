@@ -94,6 +94,22 @@ test('job statuses map onto ok, failed and neutral counters', function () {
         ->and($rollup->neutral_count)->toBe(1);
 });
 
+test('scheduled task statuses map onto ok, failed and neutral counters', function () {
+    $project = Project::factory()->create();
+
+    ingestRecords($project, [
+        ['t' => 'scheduled-task', 'command' => 'backup:run', 'status' => 'processed'],
+        ['t' => 'scheduled-task', 'command' => 'backup:run', 'status' => 'failed'],
+        ['t' => 'scheduled-task', 'command' => 'backup:run', 'status' => 'skipped'],
+    ]);
+
+    $rollup = rollupFor($project, 'scheduled-task');
+
+    expect($rollup->ok_count)->toBe(1)
+        ->and($rollup->server_error_count)->toBe(1)
+        ->and($rollup->neutral_count)->toBe(1);
+});
+
 test('cache events split into hits, misses and writes', function () {
     $project = Project::factory()->create();
 
