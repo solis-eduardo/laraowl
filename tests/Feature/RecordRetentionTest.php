@@ -20,7 +20,7 @@ test('records past the retention window are pruned', function () {
 
     expect(Record::find($stale->id))->toBeNull()
         ->and(Record::find($fresh->id))->not->toBeNull();
-})->skip('Record::prunable() was reverted to a MySQL-only DATE_SUB() query that errors on SQLite/Postgres — a fix already exists on branch fix/record-prunable-postgres (unmerged), see task "Fix Record::prunable() portably"');
+});
 
 test('a project with retention disabled keeps its records', function () {
     $project = Project::factory()->create(['retention_days' => 0]);
@@ -33,7 +33,7 @@ test('a project with retention disabled keeps its records', function () {
     $this->artisan('model:prune', ['--model' => [Record::class]])->assertExitCode(0);
 
     expect(Record::find($ancient->id))->not->toBeNull();
-})->skip('Record::prunable() was reverted to a MySQL-only DATE_SUB() query that errors on SQLite/Postgres — a fix already exists on branch fix/record-prunable-postgres (unmerged), see task "Fix Record::prunable() portably"');
+});
 
 test('retention windows are scoped per project', function () {
     $short = Project::factory()->create(['retention_days' => 1]);
@@ -53,4 +53,4 @@ test('retention windows are scoped per project', function () {
 
     expect(Record::find($prunedByShortWindow->id))->toBeNull()
         ->and(Record::find($keptByLongWindow->id))->not->toBeNull();
-})->skip('Record::prunable() was reverted to a MySQL-only DATE_SUB() query that errors on SQLite/Postgres — a fix already exists on branch fix/record-prunable-postgres (unmerged), see task "Fix Record::prunable() portably"');
+});
