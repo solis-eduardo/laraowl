@@ -5,19 +5,22 @@ namespace App\Support;
 class Version
 {
     /**
-     * The memoized version, so composer.json is only read once per process.
+     * The version this instance of LaraOwl is running.
+     *
+     * Bumped by hand on each tagged release — mirrors how
+     * Illuminate\Foundation\Application::VERSION is maintained, instead of
+     * a manual "version" key in composer.json (which composer validate
+     * --strict warns against for packages, and which isn't authoritative
+     * once someone patches the code without re-tagging).
      */
-    protected static ?string $current = null;
+    const CURRENT = '1.1.1';
 
     /**
      * Get the version this instance of LaraOwl is running.
-     *
-     * The version key in composer.json is the single source of truth and is
-     * bumped when a release is tagged.
      */
     public static function current(): string
     {
-        return static::$current ??= static::readFromComposerFile();
+        return static::CURRENT;
     }
 
     /**
@@ -38,31 +41,5 @@ class Version
             static::normalize(static::current()),
             '>',
         );
-    }
-
-    /**
-     * Forget the memoized version. Intended for tests.
-     */
-    public static function flush(): void
-    {
-        static::$current = null;
-    }
-
-    /**
-     * Read the version key out of the root composer.json.
-     */
-    protected static function readFromComposerFile(): string
-    {
-        $path = base_path('composer.json');
-
-        if (! is_readable($path)) {
-            return '0.0.0';
-        }
-
-        $composer = json_decode((string) file_get_contents($path), true);
-
-        return is_array($composer) && is_string($composer['version'] ?? null)
-            ? $composer['version']
-            : '0.0.0';
     }
 }

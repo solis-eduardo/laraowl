@@ -63,6 +63,24 @@ test('dashboard totals and breakdowns come from the rollups', function () {
         ->and($stats['guest_users_count'])->toBe(1);
 });
 
+test('a single project always counts as one service in the uptime status', function () {
+    $up = Project::factory()->create(['last_uptime_status' => 'up']);
+    $down = Project::factory()->create(['last_uptime_status' => 'down']);
+    $unchecked = Project::factory()->create(['last_uptime_status' => null]);
+
+    expect(records()->getDashboardStats($up, '1h')['uptime_status'])->toMatchArray([
+        'current' => 'up', 'up' => 1, 'down' => 0, 'total' => 1,
+    ]);
+
+    expect(records()->getDashboardStats($down, '1h')['uptime_status'])->toMatchArray([
+        'current' => 'down', 'up' => 0, 'down' => 1, 'total' => 1,
+    ]);
+
+    expect(records()->getDashboardStats($unchecked, '1h')['uptime_status'])->toMatchArray([
+        'current' => 'unknown', 'up' => 0, 'down' => 0, 'total' => 1,
+    ]);
+});
+
 test('a user seen across several hours is counted once over the period', function () {
     $project = Project::factory()->create();
 
@@ -158,6 +176,32 @@ test('the time series is bucketed and gap filled from the rollups', function () 
 
     // Every other slot is zero filled, so the chart keeps its shape.
     expect(collect($series)->sum('total'))->toBe(2);
+});
+
+test('the exception time series counts exceptions, not requests', function () {
+    $project = Project::factory()->create();
+
+    ingestBatch($project, [
+        ['t' => 'request', 'status_code' => 200, 'duration' => 10, 'user' => '1'],
+        ['t' => 'request', 'status_code' => 500, 'duration' => 30],
+        ['t' => 'exception', 'class' => 'E', 'message' => 'm'],
+        ['t' => 'exception', 'class' => 'E', 'message' => 'm'],
+        ['t' => 'exception', 'class' => 'E', 'message' => 'm'],
+    ]);
+
+    $stats = records()->getDashboardStats($project, '1h');
+
+    expect($stats['exceptionTimeSeries'])->toHaveCount(60);
+
+    // The dashboard's request series mixes in the requests above, so its
+    // populated slot totals 2 — the exception series must not be that.
+    $populated = collect($stats['exceptionTimeSeries'])->firstWhere('total', '>', 0);
+
+    expect($populated)->not->toBeNull()
+        ->and($populated['total'])->toBe(3)
+        ->and($populated['server_error'])->toBe(3);
+
+    expect(collect($stats['exceptionTimeSeries'])->sum('total'))->toBe(3);
 });
 
 test('p95 is read off the histogram instead of being a disguised maximum', function () {
@@ -276,4 +320,31 @@ test('rollups are scoped to their own project', function () {
 
     expect(records()->getQuickStats($mine, '1h')['requests'])->toBe(1)
         ->and(records()->getQuickStats($theirs, '1h')['requests'])->toBe(2);
+});
+
+test('the time series splits authenticated requests from guest requests per bucket', function () {
+    $project = Project::factory()->create();
+
+    ingestBatch($project, [
+        ['t' => 'request', 'status_code' => 200, 'user' => '1'],
+        ['t' => 'request', 'status_code' => 200, 'user' => '2'],
+        ['t' => 'request', 'status_code' => 200],
+    ]);
+
+    $series = records()->getDashboardStats($project, '1h')['timeSeries'];
+
+    $populated = collect($series)->firstWhere('total', 3);
+
+    // The legend above the chart reports 2 auth / 1 guest for the period; the
+    // bars must be able to reproduce that same split per bucket.
+    expect($populated)->not->toBeNull()
+        ->and($populated['authed'])->toBe(2)
+        ->and($populated['guest'])->toBe(1);
+
+    // Every zero-filled slot must also carry the split keys so the stacked
+    // bars don't blow up on undefined values.
+    $empty = collect($series)->firstWhere('total', 0);
+
+    expect($empty['authed'])->toBe(0)
+        ->and($empty['guest'])->toBe(0);
 });
