@@ -47,7 +47,7 @@ jobs:
           php artisan key:generate
 
       - name: Generate Wayfinder routes/actions
-        run: php artisan wayfinder:generate
+        run: php artisan wayfinder:generate --with-form
 
       - name: Run CI checks
         run: composer run ci:check
