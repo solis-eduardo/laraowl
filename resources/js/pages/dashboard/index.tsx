@@ -32,6 +32,7 @@ export default function Dashboard({
     duration_stats,
     total_exceptions,
     timeSeries,
+    exceptionTimeSeries,
     job_stats,
     impacted_users,
     active_users,
@@ -55,6 +56,12 @@ export default function Dashboard({
         });
 
     useLiveReload(currentProject?.id);
+
+    const exceptionSeries = exceptionTimeSeries?.slice(-20) || [];
+    const maxExceptionCount = exceptionSeries.reduce(
+        (max: number, d: any) => Math.max(max, d.total || 0),
+        0,
+    );
 
     return (
         <>
@@ -608,30 +615,25 @@ export default function Dashboard({
 
                             <div className="mt-auto pt-8">
                                 <div className="mb-8 flex h-[100px] w-full items-end gap-1">
-                                    {timeSeries
-                                        ?.slice(-20)
-                                        .map((d: any, i: number) => (
+                                    {exceptionSeries.map(
+                                        (d: any, i: number) => (
                                             <div
                                                 key={i}
                                                 className="group relative flex-1 rounded-t-sm bg-red-500/10"
                                                 style={{
-                                                    height: `${total_exceptions > 0 ? Math.min(100, (((d.client_error || 0) + (d.server_error || 0)) / total_exceptions) * 100) : 0}%`,
+                                                    height: `${maxExceptionCount > 0 ? Math.min(100, ((d.total || 0) / maxExceptionCount) * 100) : 0}%`,
                                                     minHeight:
-                                                        (d.client_error || 0) +
-                                                            (d.server_error ||
-                                                                0) >
-                                                        0
+                                                        (d.total || 0) > 0
                                                             ? '4px'
                                                             : '2px',
                                                 }}
                                             >
-                                                {(d.client_error || 0) +
-                                                    (d.server_error || 0) >
-                                                    0 && (
+                                                {(d.total || 0) > 0 && (
                                                     <div className="absolute inset-0 rounded-t-sm bg-red-500" />
                                                 )}
                                             </div>
-                                        ))}
+                                        ),
+                                    )}
                                 </div>
                                 <div className="mb-6 flex items-center gap-4 text-[9px] font-black tracking-widest text-muted-foreground/60 uppercase">
                                     <div className="flex items-center gap-1.5">

@@ -178,6 +178,32 @@ test('the time series is bucketed and gap filled from the rollups', function () 
     expect(collect($series)->sum('total'))->toBe(2);
 });
 
+test('the exception time series counts exceptions, not requests', function () {
+    $project = Project::factory()->create();
+
+    ingestBatch($project, [
+        ['t' => 'request', 'status_code' => 200, 'duration' => 10, 'user' => '1'],
+        ['t' => 'request', 'status_code' => 500, 'duration' => 30],
+        ['t' => 'exception', 'class' => 'E', 'message' => 'm'],
+        ['t' => 'exception', 'class' => 'E', 'message' => 'm'],
+        ['t' => 'exception', 'class' => 'E', 'message' => 'm'],
+    ]);
+
+    $stats = records()->getDashboardStats($project, '1h');
+
+    expect($stats['exceptionTimeSeries'])->toHaveCount(60);
+
+    // The dashboard's request series mixes in the requests above, so its
+    // populated slot totals 2 — the exception series must not be that.
+    $populated = collect($stats['exceptionTimeSeries'])->firstWhere('total', '>', 0);
+
+    expect($populated)->not->toBeNull()
+        ->and($populated['total'])->toBe(3)
+        ->and($populated['server_error'])->toBe(3);
+
+    expect(collect($stats['exceptionTimeSeries'])->sum('total'))->toBe(3);
+});
+
 test('p95 is read off the histogram instead of being a disguised maximum', function () {
     $project = Project::factory()->create();
 

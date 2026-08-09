@@ -129,6 +129,7 @@ class RecordService
                 ->limit(5)
                 ->get(),
             'timeSeries' => $this->getDetailedTimeSeries($project, 'request', $period, $from, $to),
+            'exceptionTimeSeries' => $this->getDetailedTimeSeries($project, 'exception', $period, $from, $to),
             'job_stats' => [
                 'total' => (int) $jobStats->total,
                 'processed' => (int) $jobStats->ok,
