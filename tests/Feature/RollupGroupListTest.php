@@ -208,7 +208,7 @@ test('the scheduled tasks list keeps the cron expression and next run', function
     $project = Project::factory()->create();
 
     ingestGroups($project, [
-        ['t' => 'scheduled-task', '_group' => 's', 'command' => 'backup:run', 'cron' => '0 3 * * *', 'exit_code' => 0],
+        ['t' => 'scheduled-task', '_group' => 's', 'command' => 'backup:run', 'cron' => '0 3 * * *', 'status' => 'processed'],
         ['t' => 'scheduled-task', '_group' => 's', 'command' => 'backup:run', 'cron' => '0 3 * * *', 'status' => 'skipped'],
     ]);
 
