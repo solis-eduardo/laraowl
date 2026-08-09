@@ -14,6 +14,7 @@ import {
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Icon } from '@/components/ui/icon';
 import AppLayout from '@/layouts/app-layout';
 import { ConnectCloudflare } from './components/connect-cloudflare';
 
@@ -36,7 +37,7 @@ const Sparkline = ({ data, color }: { data: number[]; color: string }) => (
 
 const StatCard = ({
     title,
-    icon: Icon,
+    icon,
     items,
     color = '#3b82f6',
     onBlock,
@@ -50,7 +51,7 @@ const StatCard = ({
     <Card className="overflow-hidden border-border bg-card shadow-2xl">
         <CardHeader className="border-b border-border/50 p-4">
             <CardTitle className="flex items-center gap-2 text-[10px] font-black tracking-widest text-muted-foreground uppercase">
-                <Icon className="size-3.5" />
+                <Icon iconNode={icon} className="size-3.5" />
                 {title}
             </CardTitle>
         </CardHeader>

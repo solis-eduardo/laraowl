@@ -2,6 +2,7 @@ import { Link } from '@inertiajs/react';
 import type { LucideIcon } from 'lucide-react';
 import { Ghost } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/ui/icon';
 
 interface EmptyStateProps {
     title: string;
@@ -16,7 +17,7 @@ interface EmptyStateProps {
 export function EmptyState({
     title,
     description,
-    icon: Icon = Ghost,
+    icon = Ghost,
     action,
 }: EmptyStateProps) {
     return (
@@ -24,7 +25,10 @@ export function EmptyState({
             <div className="relative mb-6">
                 <div className="absolute inset-0 rounded-full bg-muted blur-2xl" />
                 <div className="relative flex size-16 items-center justify-center rounded-2xl border border-border bg-muted shadow-2xl">
-                    <Icon className="size-8 text-muted-foreground" />
+                    <Icon
+                        iconNode={icon}
+                        className="size-8 text-muted-foreground"
+                    />
                 </div>
             </div>
             <h3 className="mb-2 text-xl font-bold tracking-tight text-foreground uppercase">
