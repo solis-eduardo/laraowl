@@ -2,9 +2,11 @@
 
 namespace App\Support;
 
+use App\Models\Project;
+
 /**
  * A scope that stats/records can be filtered by: either a single real
- * {@see \App\Models\Project} or an aggregate {@see TeamProjectScope} spanning
+ * {@see Project} or an aggregate {@see TeamProjectScope} spanning
  * every project in a team.
  *
  * `Project` implements this directly, so every existing call site that

@@ -3,9 +3,11 @@
 use App\Enums\TeamRole;
 use App\Models\Issue;
 use App\Models\Project;
+use App\Models\Record;
 use App\Models\RecordRollup;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\IngestService;
 use App\Support\TeamProjectScope;
 use Illuminate\Support\Str;
 
@@ -110,15 +112,15 @@ test('drill-down detail routes merge matching records across projects under the 
     // this lands both records under the same hash — matching how the list
     // page already merges rows by hash across projects (see groupList()).
     $this->travelTo(now()->subMinute());
-    app(\App\Services\IngestService::class)->ingest($projectA, [
+    app(IngestService::class)->ingest($projectA, [
         ['t' => 'request', 'method' => 'GET', 'path' => '/health', 'status_code' => 200],
     ]);
     $this->travelBack();
-    app(\App\Services\IngestService::class)->ingest($projectB, [
+    app(IngestService::class)->ingest($projectB, [
         ['t' => 'request', 'method' => 'GET', 'path' => '/health', 'status_code' => 200],
     ]);
 
-    $hash = \App\Models\Record::where('project_id', $projectA->id)->where('type', 'request')->value('fingerprint');
+    $hash = Record::where('project_id', $projectA->id)->where('type', 'request')->value('fingerprint');
 
     $this->actingAs($user)
         ->get(route('requests.show', ['current_team' => $team->slug, 'project' => TeamProjectScope::SLUG, 'hash' => $hash]))
@@ -138,10 +140,10 @@ test('management and detail routes for a real project are unaffected by the aggr
     $team->members()->attach($user, ['role' => TeamRole::Owner->value]);
     $project = Project::factory()->create(['team_id' => $team->id]);
 
-    app(\App\Services\IngestService::class)->ingest($project, [
+    app(IngestService::class)->ingest($project, [
         ['t' => 'request', 'method' => 'GET', 'path' => '/health', 'status_code' => 200],
     ]);
-    $hash = \App\Models\Record::where('project_id', $project->id)->where('type', 'request')->value('fingerprint');
+    $hash = Record::where('project_id', $project->id)->where('type', 'request')->value('fingerprint');
 
     $this->actingAs($user)
         ->get(route('requests.show', ['current_team' => $team->slug, 'project' => $project->slug, 'hash' => $hash]))
