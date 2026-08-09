@@ -976,14 +976,28 @@ export default function Dashboard({
                                                                     }
                                                                 </div>
                                                                 <div className="flex items-center gap-2">
-                                                                    <div className="h-2 w-2 rounded-full bg-orange-500" />
+                                                                    <div className="h-2 w-2 rounded-full bg-emerald-500" />
                                                                     <span className="text-[10px] font-medium text-muted-foreground uppercase">
-                                                                        Requests:
+                                                                        Auth:
                                                                     </span>
                                                                     <span className="text-[10px] font-bold text-foreground">
                                                                         {formatCompactNumber(
                                                                             payload[0]
-                                                                                .value,
+                                                                                .payload
+                                                                                .authed,
+                                                                        )}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <div className="h-2 w-2 rounded-full bg-orange-500" />
+                                                                    <span className="text-[10px] font-medium text-muted-foreground uppercase">
+                                                                        Guest:
+                                                                    </span>
+                                                                    <span className="text-[10px] font-bold text-foreground">
+                                                                        {formatCompactNumber(
+                                                                            payload[0]
+                                                                                .payload
+                                                                                .guest,
                                                                         )}
                                                                     </span>
                                                                 </div>
@@ -995,7 +1009,13 @@ export default function Dashboard({
                                                 }}
                                             />
                                             <Bar
-                                                dataKey="total"
+                                                dataKey="authed"
+                                                stackId="requests"
+                                                fill="#10b981"
+                                            />
+                                            <Bar
+                                                dataKey="guest"
+                                                stackId="requests"
                                                 fill="#f59e0b"
                                                 radius={[1, 1, 0, 0]}
                                             />

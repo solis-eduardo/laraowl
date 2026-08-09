@@ -820,6 +820,7 @@ class RecordService
                 $sum('hits', 'hits'),
                 $sum('misses', 'misses'),
                 $sum('writes', 'writes'),
+                $sum('authed_count', 'authed'),
                 DB::raw('SUM('.$this->col('sum_duration').') / NULLIF(SUM('.$this->col('count_duration').'), 0) as avg_duration'),
             ])
             ->groupBy('minute')
@@ -844,6 +845,7 @@ class RecordService
         $results = $results->mapWithKeys(function ($row) use ($activeUsers, $groupsByMinute) {
             $key = $this->seriesKey($row->minute, $groupsByMinute);
             $userSlot = $groupsByMinute ? Carbon::parse($row->minute)->format('Y-m-d H') : $row->minute;
+            $authed = (int) $row->authed;
 
             return [$key => [
                 'minute' => $key,
@@ -857,10 +859,76 @@ class RecordService
                 'writes' => (int) $row->writes,
                 'active_users' => $activeUsers[$userSlot] ?? 0,
                 'total_requests' => (int) $row->total,
+                'authed' => $authed,
+                'guest' => max((int) $row->total - $authed, 0),
             ]];
         });
 
         return $this->fillTimeSeriesGaps($results, $period, $from, $to);
+    }
+
+    /**
+     * The chart key a grouped row belongs to.
+     */
+    private function seriesKey(string $value, bool $groupedByMinute): string
+    {
+        return $groupedByMinute ? Carbon::parse($value)->format('H:i') : $value;
+    }
+
+    /**
+     * Fill missing time slots with zeroed data.
+     */
+    protected function fillTimeSeriesGaps($results, string $period, ?string $from = null, ?string $to = null): array
+    {
+        $data = [];
+        $now = now();
+
+        $iterations = match ($period) {
+            '1h' => 60,
+            '24h' => 1440,
+            '7d' => 7,
+            '14d' => 14,
+            '30d' => 30,
+            default => 60,
+        };
+
+        $unit = match ($period) {
+            '7d', '14d', '30d' => 'day',
+            default => 'minute',
+        };
+
+        $dateFormat = match ($period) {
+            '7d', '14d', '30d' => 'm-d',
+            '24h' => 'H:i',
+            default => 'H:i',
+        };
+
+        for ($i = $iterations - 1; $i >= 0; $i--) {
+            $time = (clone $now)->sub($unit, $i);
+            $key = $time->format($dateFormat);
+
+            if ($results->has($key)) {
+                $data[] = $results->get($key);
+            } else {
+                $data[] = [
+                    'minute' => $key,
+                    'total' => 0,
+                    'ok' => 0,
+                    'client_error' => 0,
+                    'server_error' => 0,
+                    'avg_duration' => 0,
+                    'hits' => 0,
+                    'misses' => 0,
+                    'writes' => 0,
+                    'active_users' => 0,
+                    'total_requests' => 0,
+                    'authed' => 0,
+                    'guest' => 0,
+                ];
+            }
+        }
+
+        return $data;
     }
 
     private function enrichUserPaginator(ProjectContext $project, LengthAwarePaginator $paginator): LengthAwarePaginator
