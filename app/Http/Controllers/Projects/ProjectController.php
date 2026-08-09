@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers\Projects;
 
+use App\Actions\Projects\CreateProject;
 use App\Http\Controllers\Controller;
 use App\Models\Project;
 use App\Models\Team;
 use App\Services\CloudflareService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class ProjectController extends Controller
 {
@@ -79,7 +79,7 @@ class ProjectController extends Controller
         }
     }
 
-    public function store(Request $request, Team $current_team)
+    public function store(Request $request, Team $current_team, CreateProject $createProject)
     {
         $request->validate([
             'name' => ['required', 'string', 'max:255'],
@@ -87,52 +87,10 @@ class ProjectController extends Controller
             'logo' => ['nullable', 'image', 'max:2048'],
         ]);
 
-        $project = $current_team->projects()->create([
-            'name' => $request->name,
-            'url' => $request->url,
-            'api_token' => Str::random(32),
-            'uptime_check_interval' => 60,
-        ]);
+        $project = $createProject->handle($current_team, $request->name, $request->url, $request->user()->email);
 
         if ($request->hasFile('logo')) {
             $project->addMediaFromRequest('logo')->toMediaCollection('logo');
-        }
-
-        // Create Default Email Integration
-        $integration = $project->integrations()->create([
-            'name' => 'Default Email',
-            'type' => 'email',
-            'data' => ['email' => $request->user()->email],
-            'is_enabled' => true,
-        ]);
-
-        // Create Default Alert Rules
-        $rules = [
-            [
-                'name' => 'Critical Exceptions',
-                'event_type' => 'new_exception',
-                'settings' => ['frequency' => 'immediate'],
-            ],
-            [
-                'name' => 'Site DOWN Alert',
-                'event_type' => 'uptime_down',
-                'settings' => ['frequency' => 'immediate'],
-            ],
-            [
-                'name' => 'Error Spike Detected',
-                'event_type' => 'error_spike',
-                'settings' => ['threshold' => 50, 'period' => 1], // 50 errors in 1 minute
-            ],
-            [
-                'name' => 'Background Job Failed',
-                'event_type' => 'heartbeat_failed',
-                'settings' => ['frequency' => 'immediate'],
-            ],
-        ];
-
-        foreach ($rules as $ruleData) {
-            $rule = $project->alertRules()->create($ruleData + ['is_enabled' => true]);
-            $rule->integrations()->attach($integration->id);
         }
 
         return redirect()->route('dashboard', [
