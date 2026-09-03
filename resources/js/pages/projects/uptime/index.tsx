@@ -21,6 +21,27 @@ export default function UptimeIndex({ checks, uptime_stats, period }: any) {
 
     useLiveReload(currentProject?.id);
 
+    if (currentProject && !currentProject.uptime_monitoring_enabled) {
+        return (
+            <>
+                <Head title={`Uptime - ${currentProject?.name}`} />
+
+                <Card className="border-border bg-card p-12 shadow-2xl">
+                    <div className="flex flex-col items-center justify-center gap-4 text-center">
+                        <Globe className="size-12 text-muted-foreground/30" />
+                        <div className="text-2xl font-black tracking-tighter text-foreground">
+                            Uptime Monitoring Disabled
+                        </div>
+                        <p className="max-w-md text-[10px] font-black tracking-widest text-muted-foreground uppercase opacity-50">
+                            Enable it under the project's general settings to
+                            start checking availability again.
+                        </p>
+                    </div>
+                </Card>
+            </>
+        );
+    }
+
     return (
         <>
             <Head title={`Uptime - ${currentProject?.name}`} />

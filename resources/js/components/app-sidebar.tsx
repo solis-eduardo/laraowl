@@ -130,17 +130,23 @@ export function AppSidebar() {
         },
     ];
 
+    const uptimeEnabled = currentProject?.uptime_monitoring_enabled ?? true;
+
     const monitoringNavItems: NavItem[] = [
         {
             title: 'Users',
             href: withPeriod(`/${teamSlug}/${projectSlug}/users`),
             icon: Users,
         },
-        {
-            title: 'Uptime',
-            href: withPeriod(`/${teamSlug}/${projectSlug}/uptime`),
-            icon: Globe,
-        },
+        ...(uptimeEnabled
+            ? [
+                  {
+                      title: 'Uptime',
+                      href: withPeriod(`/${teamSlug}/${projectSlug}/uptime`),
+                      icon: Globe,
+                  },
+              ]
+            : []),
         {
             title: 'Logs',
             href: withPeriod(`/${teamSlug}/${projectSlug}/logs`),

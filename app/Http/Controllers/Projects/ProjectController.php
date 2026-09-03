@@ -16,17 +16,34 @@ class ProjectController extends Controller
         $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'url' => ['nullable', 'url', 'max:255'],
+            'uptime_monitoring_enabled' => ['sometimes', 'boolean'],
             'uptime_check_interval' => ['nullable', 'integer', 'min:30'],
             'retention_days' => ['nullable', 'integer', 'min:0', 'max:365'],
             'logo' => ['nullable', 'image', 'max:2048'],
         ]);
 
-        $project->update([
+        // Keep the stored value when the field is omitted so a partial update
+        // can't silently switch monitoring off.
+        $monitoringEnabled = $request->missing('uptime_monitoring_enabled')
+            ? $project->uptime_monitoring_enabled
+            : $request->boolean('uptime_monitoring_enabled');
+
+        $attributes = [
             'name' => $request->name,
             'url' => $request->url,
+            'uptime_monitoring_enabled' => $monitoringEnabled,
             'uptime_check_interval' => $request->uptime_check_interval ?? 60,
             'retention_days' => $request->retention_days ?? 7,
-        ]);
+        ];
+
+        // Clear the stale status so a disabled project no longer reads as
+        // "down" and re-enabling it can't fire a false recovery alert.
+        if (! $monitoringEnabled && $project->uptime_monitoring_enabled) {
+            $attributes['last_uptime_status'] = null;
+            $attributes['last_uptime_check_at'] = null;
+        }
+
+        $project->update($attributes);
 
         if ($request->hasFile('logo')) {
             $project->clearMediaCollection('logo');

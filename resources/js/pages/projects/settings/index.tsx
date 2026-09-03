@@ -51,6 +51,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
     Tooltip,
@@ -113,6 +114,7 @@ export default function ProjectSettings({
     const generalForm = useForm({
         name: project.name,
         url: project.url || '',
+        uptime_monitoring_enabled: project.uptime_monitoring_enabled ?? true,
         uptime_check_interval: project.uptime_check_interval || 60,
         retention_days: project.retention_days || 7,
         logo: null as File | null,
@@ -869,61 +871,88 @@ export default function ProjectSettings({
                                                         placeholder="https://example.com"
                                                     />
                                                 </div>
-                                                <div className="space-y-2">
+                                                <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-muted px-4 py-3">
                                                     <Label>
-                                                        Uptime Check Interval
+                                                        Uptime Monitoring
                                                     </Label>
-                                                    <Select
-                                                        value={String(
+                                                    <Switch
+                                                        checked={
                                                             generalForm.data
-                                                                .uptime_check_interval,
-                                                        )}
-                                                        onValueChange={(val) =>
+                                                                .uptime_monitoring_enabled
+                                                        }
+                                                        onCheckedChange={(
+                                                            checked,
+                                                        ) =>
                                                             generalForm.setData(
-                                                                'uptime_check_interval',
-                                                                parseInt(val),
+                                                                'uptime_monitoring_enabled',
+                                                                checked,
                                                             )
                                                         }
-                                                    >
-                                                        <SelectTrigger className="h-11 rounded-xl border-border bg-muted">
-                                                            <SelectValue placeholder="Select interval" />
-                                                        </SelectTrigger>
-                                                        <SelectContent className="border-border bg-popover">
-                                                            <SelectItem value="30">
-                                                                30 Seconds
-                                                            </SelectItem>
-                                                            <SelectItem value="60">
-                                                                1 Minute
-                                                                (Default)
-                                                            </SelectItem>
-                                                            <SelectItem value="120">
-                                                                2 Minutes
-                                                            </SelectItem>
-                                                            <SelectItem value="180">
-                                                                3 Minutes
-                                                            </SelectItem>
-                                                            <SelectItem value="300">
-                                                                5 Minutes
-                                                            </SelectItem>
-                                                            <SelectItem value="600">
-                                                                10 Minutes
-                                                            </SelectItem>
-                                                            <SelectItem value="900">
-                                                                15 Minutes
-                                                            </SelectItem>
-                                                            <SelectItem value="1800">
-                                                                30 Minutes
-                                                            </SelectItem>
-                                                            <SelectItem value="3600">
-                                                                1 Hour
-                                                            </SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                    <p className="text-[10px] font-black tracking-widest text-muted-foreground uppercase opacity-50">
-                                                        Frequency of
-                                                        availability checks.
-                                                    </p>
+                                                    />
                                                 </div>
+                                                {generalForm.data
+                                                    .uptime_monitoring_enabled && (
+                                                    <div className="space-y-2">
+                                                        <Label>
+                                                            Uptime Check
+                                                            Interval
+                                                        </Label>
+                                                        <Select
+                                                            value={String(
+                                                                generalForm.data
+                                                                    .uptime_check_interval,
+                                                            )}
+                                                            onValueChange={(
+                                                                val,
+                                                            ) =>
+                                                                generalForm.setData(
+                                                                    'uptime_check_interval',
+                                                                    parseInt(
+                                                                        val,
+                                                                    ),
+                                                                )
+                                                            }
+                                                        >
+                                                            <SelectTrigger className="h-11 rounded-xl border-border bg-muted">
+                                                                <SelectValue placeholder="Select interval" />
+                                                            </SelectTrigger>
+                                                            <SelectContent className="border-border bg-popover">
+                                                                <SelectItem value="30">
+                                                                    30 Seconds
+                                                                </SelectItem>
+                                                                <SelectItem value="60">
+                                                                    1 Minute
+                                                                    (Default)
+                                                                </SelectItem>
+                                                                <SelectItem value="120">
+                                                                    2 Minutes
+                                                                </SelectItem>
+                                                                <SelectItem value="180">
+                                                                    3 Minutes
+                                                                </SelectItem>
+                                                                <SelectItem value="300">
+                                                                    5 Minutes
+                                                                </SelectItem>
+                                                                <SelectItem value="600">
+                                                                    10 Minutes
+                                                                </SelectItem>
+                                                                <SelectItem value="900">
+                                                                    15 Minutes
+                                                                </SelectItem>
+                                                                <SelectItem value="1800">
+                                                                    30 Minutes
+                                                                </SelectItem>
+                                                                <SelectItem value="3600">
+                                                                    1 Hour
+                                                                </SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                        <p className="text-[10px] font-black tracking-widest text-muted-foreground uppercase opacity-50">
+                                                            Frequency of
+                                                            availability checks.
+                                                        </p>
+                                                    </div>
+                                                )}
 
                                                 <div className="space-y-2">
                                                     <Label>

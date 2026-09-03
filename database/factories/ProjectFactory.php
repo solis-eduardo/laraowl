@@ -19,7 +19,18 @@ class ProjectFactory extends Factory
             'slug' => fn (array $attributes) => Str::slug($attributes['name']),
             'api_token' => Str::random(64),
             'url' => $this->faker->url(),
+            'uptime_monitoring_enabled' => true,
             'settings' => [],
         ];
+    }
+
+    /**
+     * Indicate that the project should not be checked for uptime.
+     */
+    public function withoutUptimeMonitoring(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'uptime_monitoring_enabled' => false,
+        ]);
     }
 }

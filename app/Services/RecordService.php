@@ -1016,10 +1016,30 @@ class RecordService
 
     public function getUptimeStats(ProjectContext $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
-        $query = UptimeCheck::query()
-            ->whereIn('project_id', $project->projectIds())
-            ->when($project->isAggregate(), fn ($q) => $q->with('project:id,name,slug'))
-            ->orderBy('checked_at', 'desc');
+        // TODO: the aggregate ("All projects") uptime view lost its
+        // per-project opt-in badges/enable-toggle awareness when the
+        // upstream `hasUptimeMonitoring()` gate was merged in — it only
+        // applies to a single `Project`. Revisit once aggregate support for
+        // that gate is designed.
+        if ($project instanceof Project) {
+            if (! $project->hasUptimeMonitoring()) {
+                return [
+                    'checks' => new LengthAwarePaginator([], 0, 50),
+                    'uptime_stats' => [
+                        'uptime_percentage' => 0,
+                        'avg_response_time' => 0,
+                        'last_check' => null,
+                        'total_checks' => 0,
+                    ],
+                ];
+            }
+
+            $query = $project->uptimeChecks()->orderBy('checked_at', 'desc');
+        } else {
+            $query = UptimeCheck::query()
+                ->whereIn('project_id', $project->projectIds())
+                ->orderBy('checked_at', 'desc');
+        }
 
         if ($period && $period !== 'all') {
             $minutes = match ($period) {
