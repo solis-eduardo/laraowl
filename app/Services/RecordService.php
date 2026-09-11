@@ -121,13 +121,6 @@ class RecordService
                 'min' => round((float) ($requestStats->min_duration ?? 0), 2),
             ],
             'total_exceptions' => (int) $exceptionStats->total,
-            'recent_issues' => Issue::query()
-                ->whereIn('project_id', $project->projectIds())
-                ->where('status', 'open')
-                ->with('project:id,name,slug')
-                ->latest('last_seen_at')
-                ->limit(5)
-                ->get(),
             'timeSeries' => $this->getDetailedTimeSeries($project, 'request', $period, $from, $to),
             'exceptionTimeSeries' => $this->getDetailedTimeSeries($project, 'exception', $period, $from, $to),
             'job_stats' => [
@@ -908,6 +901,16 @@ class RecordService
     }
 
     /**
+     * The display name and email behind a set of user identifiers, read from
+     * the most recent `user` record for each of them.
+     *
+     * Filtered on the indexed `user_key` column rather than on a JSON
+     * expression over `payload`, so this stays an index lookup on a records
+     * table with millions of rows. The identifiers are resolved in two steps
+     * — newest row id per user, then the payloads for those ids — because the
+     * alternative is reading every matching row just to throw all but the
+     * newest away.
+     *
      * @param  array<int, int|string>  $ids
      * @return array<string, array{name: string, email: string}>
      */
@@ -923,19 +926,30 @@ class RecordService
             return [];
         }
 
+        $latestIds = Record::query()
+            ->whereIn('project_id', $project->projectIds())
+            ->ofType('user')
+            ->whereIn('user_key', $ids->all())
+            ->groupBy('user_key')
+            ->selectRaw('MAX('.$this->col('id').') as id')
+            ->toBase()
+            ->pluck('id')
+            ->all();
+
+        if ($latestIds === []) {
+            return [];
+        }
+
         $details = [];
 
         Record::query()
-            ->whereIn('project_id', $project->projectIds())
-            ->ofType('user')
-            ->whereIn(DB::raw($this->jsonText('id')), $ids->all())
-            ->latest()
-            ->get(['payload'])
-            ->each(function ($record) use (&$details): void {
-                $payload = $record->payload;
-                $id = (string) ($payload['id'] ?? '');
+            ->whereIn('id', $latestIds)
+            ->get(['user_key', 'payload'])
+            ->each(function (Record $record) use (&$details): void {
+                $payload = $record->payload ?? [];
+                $id = (string) ($record->user_key ?? $payload['id'] ?? '');
 
-                if ($id === '' || isset($details[$id])) {
+                if ($id === '') {
                     return;
                 }
 

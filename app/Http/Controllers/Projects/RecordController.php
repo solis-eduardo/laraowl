@@ -57,7 +57,6 @@ class RecordController extends Controller
         return Inertia::render($this->resolveComponentPath($routeName), [
             'records' => $this->recordService->getPaginatedRecords($scope, $type, $request->search, $period, $from, $to),
             'filters' => $request->only(['search', 'period', 'from', 'to']),
-            'stats' => $this->recordService->getQuickStats($scope, $period, $from, $to),
             'period' => $period,
             'from' => $from,
             'to' => $to,
@@ -77,7 +76,16 @@ class RecordController extends Controller
         $sort = request()->query('sort', 'total');
         $direction = request()->query('direction', 'desc');
 
-        return $this->renderWithStats('projects/requests', $this->recordService->getRequestStats($project, $period, $from, $to, $sort, $direction), $project, $period, $from, $to);
+        return $this->renderWithStats(
+            'projects/requests',
+            $this->recordService->getRequestStats($project, $period, $from, $to, $sort, $direction),
+            $project,
+            $period,
+            $from,
+            $to,
+            // The only screen that renders the cross-type record counts.
+            withQuickStats: true,
+        );
     }
 
     protected function renderUsersIndex(ProjectContext $project, string $period, ?string $from, ?string $to): Response
@@ -145,7 +153,6 @@ class RecordController extends Controller
         return Inertia::render('projects/logs/index', [
             'records' => $this->recordService->getLogRecords($project, request('search'), $period, $from, $to),
             'filters' => request()->only(['search', 'period', 'from', 'to']),
-            'stats' => $this->recordService->getQuickStats($project, $period, $from, $to),
             'period' => $period,
             'from' => $from,
             'to' => $to,
@@ -255,14 +262,20 @@ class RecordController extends Controller
         ]);
     }
 
-    protected function renderWithStats(string $component, array $data, ProjectContext $project, string $period, ?string $from = null, ?string $to = null): Response
+    /**
+     * `$withQuickStats` is opt-in because `getQuickStats()` aggregates every
+     * record type in one go: paying for it on the screens that never render
+     * it is an aggregate query per page view for nothing.
+     */
+    protected function renderWithStats(string $component, array $data, ProjectContext $project, string $period, ?string $from = null, ?string $to = null, bool $withQuickStats = false): Response
     {
         return Inertia::render($component.'/index', array_merge($data, [
-            'stats' => $this->recordService->getQuickStats($project, $period, $from, $to),
             'period' => $period,
             'from' => $from,
             'to' => $to,
-        ]));
+        ], $withQuickStats ? [
+            'stats' => $this->recordService->getQuickStats($project, $period, $from, $to),
+        ] : []));
     }
 
     protected function resolveTypeFromRoute(string $routeName): string
