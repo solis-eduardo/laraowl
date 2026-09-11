@@ -96,6 +96,67 @@ test('a dashboard group with no records still reports zeroed totals', function (
         ->and($stats['job_stats']['p95_duration'])->toBe(0.0);
 });
 
+test('the dashboard answers with its cards and defers the charts and the user panels', function () {
+    [$user, $team, $project] = dashboardActor();
+
+    app(IngestService::class)->ingest($project, [
+        ['t' => 'request', 'status_code' => 200, 'duration' => 10, 'user' => 7],
+        ['t' => 'exception', 'class' => 'E', 'message' => 'm', 'user' => 7],
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('dashboard', ['current_team' => $team->slug, 'project' => $project->slug]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            // The cards are there on the first paint.
+            ->where('total_requests', 1)
+            ->where('total_exceptions', 1)
+            ->has('job_stats')
+            ->has('uptime_status')
+            // The charts and the panels are announced, not resolved.
+            ->missing('timeSeries')
+            ->missing('exceptionTimeSeries')
+            ->missing('impacted_users')
+            ->missing('active_users')
+            ->loadDeferredProps('charts', fn ($reload) => $reload
+                ->has('timeSeries')
+                ->has('exceptionTimeSeries')
+                // Each group travels on its own request.
+                ->missing('impacted_users')
+            )
+            ->loadDeferredProps('panels', fn ($reload) => $reload
+                ->has('impacted_users')
+                ->has('active_users')
+                ->missing('timeSeries')
+            )
+        );
+});
+
+test('the first dashboard request does not query what it defers', function () {
+    [$user, $team, $project] = dashboardActor();
+
+    app(IngestService::class)->ingest($project, [
+        ['t' => 'user', 'id' => 7, 'name' => 'Ada Lovelace', 'username' => 'ada@example.com'],
+        ['t' => 'request', 'status_code' => 200, 'duration' => 10, 'user' => 7],
+    ]);
+
+    $queries = [];
+    DB::listen(function ($query) use (&$queries) {
+        $queries[] = $query->sql;
+    });
+
+    $this->actingAs($user)
+        ->get(route('dashboard', ['current_team' => $team->slug, 'project' => $project->slug]))
+        ->assertOk();
+
+    // The grouped totals and the distinct-user count, and nothing else: the
+    // series and the name lookups belong to the deferred groups, and a prop
+    // nobody asked for must not resolve.
+    expect(collect($queries)->filter(fn (string $sql) => str_contains($sql, 'record_rollups')))->toHaveCount(1)
+        ->and(collect($queries)->filter(fn (string $sql) => str_contains($sql, 'record_user_buckets')))->toHaveCount(1)
+        ->and(collect($queries)->filter(fn (string $sql) => str_contains($sql, '"records"')))->toHaveCount(0);
+});
+
 test('the shared team props cost one query regardless of how many teams a user has', function () {
     [$user] = dashboardActor();
 

@@ -95,9 +95,27 @@ class RecordService
     }
 
     /**
-     * Get comprehensive dashboard metrics.
+     * Every dashboard metric, in one call.
+     *
+     * Split into the three parts the screen loads separately — the cards, the
+     * charts, and the user panels — so a page view can render the cards
+     * immediately and defer the rest. This composition stays for callers that
+     * want the lot in one go.
      */
     public function getDashboardStats(ProjectContext $project, ?string $period = null, ?string $from = null, ?string $to = null): array
+    {
+        return [
+            ...$this->getDashboardSummary($project, $period, $from, $to),
+            ...$this->getDashboardCharts($project, $period, $from, $to),
+            ...$this->getDashboardUserPanels($project, $period, $from, $to),
+        ];
+    }
+
+    /**
+     * The counters and status cards: one grouped read over the rollups plus
+     * the distinct-user count.
+     */
+    public function getDashboardSummary(ProjectContext $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
         $totals = $this->rollupTotalsByGroup($project, [
             'request' => ['request'],
@@ -108,15 +126,6 @@ class RecordService
         $requestStats = $totals['request'];
         $exceptionStats = $totals['exception'];
         $jobStats = $totals['job'];
-
-        $series = $this->detailedTimeSeriesByType($project, ['request', 'exception'], $period, $from, $to);
-
-        $impactedUsers = $this->topUsers($project, 'exception', 'error_count', $period, $from, $to);
-        $activeUsers = $this->topUsers($project, 'request', 'request_count', $period, $from, $to);
-
-        // Both panels name the same people as often as not, so they are
-        // resolved together: the rows are the same objects either way.
-        $this->enrichUserRows($project, $impactedUsers->concat($activeUsers));
 
         return [
             'total_requests' => (int) $requestStats->total,
@@ -131,8 +140,6 @@ class RecordService
                 'min' => round((float) ($requestStats->min_duration ?? 0), 2),
             ],
             'total_exceptions' => (int) $exceptionStats->total,
-            'timeSeries' => $series['request'],
-            'exceptionTimeSeries' => $series['exception'],
             'job_stats' => [
                 'total' => (int) $jobStats->total,
                 'processed' => (int) $jobStats->ok,
@@ -141,8 +148,6 @@ class RecordService
                 'avg_duration' => round($this->avgDuration($jobStats) / 1000, 2),
                 'p95_duration' => round($this->p95Duration($jobStats) / 1000, 2),
             ],
-            'impacted_users' => $impactedUsers,
-            'active_users' => $activeUsers,
             'auth_users_count' => $this->distinctUsers($project, 'request', $period, $from, $to),
             'guest_users_count' => (int) $requestStats->total - (int) $requestStats->authed,
             'period' => $period,
@@ -156,6 +161,37 @@ class RecordService
                     'down' => $project->last_uptime_status === 'down' ? 1 : 0,
                     'total' => 1,
                 ],
+        ];
+    }
+
+    /**
+     * The two chart series behind the dashboard, from one read per table.
+     */
+    public function getDashboardCharts(ProjectContext $project, ?string $period = null, ?string $from = null, ?string $to = null): array
+    {
+        $series = $this->detailedTimeSeriesByType($project, ['request', 'exception'], $period, $from, $to);
+
+        return [
+            'timeSeries' => $series['request'],
+            'exceptionTimeSeries' => $series['exception'],
+        ];
+    }
+
+    /**
+     * The impacted and most active users panels.
+     */
+    public function getDashboardUserPanels(ProjectContext $project, ?string $period = null, ?string $from = null, ?string $to = null): array
+    {
+        $impactedUsers = $this->topUsers($project, 'exception', 'error_count', $period, $from, $to);
+        $activeUsers = $this->topUsers($project, 'request', 'request_count', $period, $from, $to);
+
+        // Both panels name the same people as often as not, so they are
+        // resolved together: the rows are the same objects either way.
+        $this->enrichUserRows($project, $impactedUsers->concat($activeUsers));
+
+        return [
+            'impacted_users' => $impactedUsers,
+            'active_users' => $activeUsers,
         ];
     }
 
