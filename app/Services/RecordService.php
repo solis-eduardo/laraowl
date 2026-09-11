@@ -15,6 +15,7 @@ use App\Models\UptimeCheck;
 use App\Support\ProjectContext;
 use Carbon\Carbon;
 use Cron\CronExpression;
+use Illuminate\Contracts\Database\Query\Expression;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -98,15 +99,24 @@ class RecordService
      */
     public function getDashboardStats(ProjectContext $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
-        $requestStats = $this->rollupTotals($project, 'request', $period, $from, $to);
-        $exceptionStats = $this->rollupTotals($project, 'exception', $period, $from, $to);
-        $jobStats = $this->rollupTotals($project, ['job-attempt', 'queued-job'], $period, $from, $to);
+        $totals = $this->rollupTotalsByGroup($project, [
+            'request' => ['request'],
+            'exception' => ['exception'],
+            'job' => ['job-attempt', 'queued-job'],
+        ], $period, $from, $to);
+
+        $requestStats = $totals['request'];
+        $exceptionStats = $totals['exception'];
+        $jobStats = $totals['job'];
+
+        $series = $this->detailedTimeSeriesByType($project, ['request', 'exception'], $period, $from, $to);
 
         $impactedUsers = $this->topUsers($project, 'exception', 'error_count', $period, $from, $to);
         $activeUsers = $this->topUsers($project, 'request', 'request_count', $period, $from, $to);
 
-        $this->enrichUserRows($project, $impactedUsers);
-        $this->enrichUserRows($project, $activeUsers);
+        // Both panels name the same people as often as not, so they are
+        // resolved together: the rows are the same objects either way.
+        $this->enrichUserRows($project, $impactedUsers->concat($activeUsers));
 
         return [
             'total_requests' => (int) $requestStats->total,
@@ -121,8 +131,8 @@ class RecordService
                 'min' => round((float) ($requestStats->min_duration ?? 0), 2),
             ],
             'total_exceptions' => (int) $exceptionStats->total,
-            'timeSeries' => $this->getDetailedTimeSeries($project, 'request', $period, $from, $to),
-            'exceptionTimeSeries' => $this->getDetailedTimeSeries($project, 'exception', $period, $from, $to),
+            'timeSeries' => $series['request'],
+            'exceptionTimeSeries' => $series['exception'],
             'job_stats' => [
                 'total' => (int) $jobStats->total,
                 'processed' => (int) $jobStats->ok,
@@ -793,6 +803,22 @@ class RecordService
      */
     protected function getDetailedTimeSeries(ProjectContext $project, string $type, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
+        return $this->detailedTimeSeriesByType($project, [$type], $period, $from, $to)[$type];
+    }
+
+    /**
+     * The same series for several record types, in one read per table.
+     *
+     * The dashboard charts requests and exceptions side by side, which used
+     * to be two passes over `record_rollups` and two over
+     * `record_user_buckets` — same project, same period, same buckets. The
+     * type joins the group-by instead, and the rows are split per type here.
+     *
+     * @param  list<string>  $types
+     * @return array<string, list<array<string, mixed>>>
+     */
+    protected function detailedTimeSeriesByType(ProjectContext $project, array $types, ?string $period = null, ?string $from = null, ?string $to = null): array
+    {
         $period = $period ?: '1h';
 
         $groupsByMinute = ! in_array($period, ['7d', '14d', '30d', 'custom'], true);
@@ -802,9 +828,10 @@ class RecordService
 
         $results = RecordRollup::query()
             ->whereIn('project_id', $project->projectIds())
-            ->where('type', $type)
+            ->whereIn('type', $types)
             ->forPeriod($period, $from, $to)
             ->select([
+                'type',
                 DB::raw("{$bucket} as minute"),
                 $sum('count', 'total'),
                 $sum('ok_count', 'ok'),
@@ -817,32 +844,33 @@ class RecordService
                 $sum('sum_duration', 'sum_duration'),
                 $sum('count_duration', 'count_duration'),
             ])
-            ->groupBy('minute')
+            ->groupBy('type', 'minute')
             ->get();
 
         $userBucket = $groupsByMinute ? $this->col('bucket') : $bucket;
 
         $activeUsers = RecordUserBucket::query()
             ->whereIn('project_id', $project->projectIds())
-            ->where('type', $type)
+            ->whereIn('type', $types)
             ->forPeriod($period, $from, $to)
             ->select([
+                'type',
                 DB::raw("{$userBucket} as slot"),
                 DB::raw('COUNT(DISTINCT '.$this->col('user_key').') as active_users'),
             ])
-            ->groupBy('slot')
+            ->groupBy('type', 'slot')
             ->get()
             ->mapWithKeys(fn ($row) => [
-                $groupsByMinute ? Carbon::parse($row->slot)->format('Y-m-d H') : $row->slot => (int) $row->active_users,
+                $row->type.'@'.($groupsByMinute ? Carbon::parse($row->slot)->format('Y-m-d H') : $row->slot) => (int) $row->active_users,
             ]);
 
         $slots = [];
 
         foreach ($results as $row) {
             $key = $this->seriesKey($row->minute, $groupsByMinute, $period);
-            $userSlot = $groupsByMinute ? Carbon::parse($row->minute)->format('Y-m-d H') : $row->minute;
+            $userSlot = $row->type.'@'.($groupsByMinute ? Carbon::parse($row->minute)->format('Y-m-d H') : $row->minute);
 
-            $slot = $slots[$key] ?? [
+            $slot = $slots[$row->type][$key] ?? [
                 'minute' => $key,
                 'total' => 0,
                 'ok' => 0,
@@ -875,10 +903,31 @@ class RecordService
             // the same count rather than one to add up.
             $slot['active_users'] = max($slot['active_users'], $activeUsers[$userSlot] ?? 0);
 
-            $slots[$key] = $slot;
+            $slots[$row->type][$key] = $slot;
         }
 
-        $series = collect($slots)->map(function (array $slot): array {
+        $series = [];
+
+        foreach ($types as $type) {
+            $series[$type] = $this->fillTimeSeriesGaps(
+                collect($slots[$type] ?? [])->map($this->finishSlot()),
+                $period,
+                $from,
+                $to,
+            );
+        }
+
+        return $series;
+    }
+
+    /**
+     * Turn an accumulated slot into the shape the charts read.
+     *
+     * @return callable(array<string, mixed>): array<string, mixed>
+     */
+    private function finishSlot(): callable
+    {
+        return function (array $slot): array {
             $slot['total_requests'] = $slot['total'];
             $slot['guest'] = max($slot['total'] - $slot['authed'], 0);
             // Recomputed from the summed numerator/denominator: averaging the
@@ -890,9 +939,7 @@ class RecordService
             unset($slot['sum_duration'], $slot['count_duration']);
 
             return $slot;
-        });
-
-        return $this->fillTimeSeriesGaps($series, $period, $from, $to);
+        };
     }
 
     private function enrichUserPaginator(ProjectContext $project, LengthAwarePaginator $paginator): LengthAwarePaginator
@@ -1149,6 +1196,64 @@ class RecordService
      */
     protected function rollupTotals(ProjectContext $project, string|array $types, ?string $period = null, ?string $from = null, ?string $to = null): object
     {
+        return RecordRollup::query()
+            ->whereIn('project_id', $project->projectIds())
+            ->whereIn('type', (array) $types)
+            ->forPeriod($period, $from, $to)
+            ->select($this->totalsColumns())
+            ->first();
+    }
+
+    /**
+     * The same totals for several groups of types, in one read.
+     *
+     * A screen that reports on requests, exceptions and jobs side by side
+     * used to run `rollupTotals()` once per group: three aggregates over the
+     * same rows of the same table, filtered by the same project and period.
+     * The groups are folded into one `CASE` the query groups by instead.
+     *
+     * Groups with no rows in the period are absent from the result set, so
+     * they are zero filled: a caller reads `->total` either way.
+     *
+     * @param  array<string, list<string>>  $groups  label => record types
+     * @return array<string, object>
+     */
+    protected function rollupTotalsByGroup(ProjectContext $project, array $groups, ?string $period = null, ?string $from = null, ?string $to = null): array
+    {
+        $case = 'CASE';
+
+        foreach ($groups as $label => $types) {
+            $quoted = implode(', ', array_map([$this, 'quoteLiteral'], $types));
+            $case .= ' WHEN '.$this->col('type').' IN ('.$quoted.') THEN '.$this->quoteLiteral((string) $label);
+        }
+
+        $case .= ' END';
+
+        $rows = RecordRollup::query()
+            ->whereIn('project_id', $project->projectIds())
+            ->whereIn('type', array_merge(...array_values($groups)))
+            ->forPeriod($period, $from, $to)
+            ->select(array_merge($this->totalsColumns(), [DB::raw($case.' as total_group')]))
+            ->groupBy('total_group')
+            ->get()
+            ->keyBy('total_group');
+
+        $totals = [];
+
+        foreach (array_keys($groups) as $label) {
+            $totals[$label] = $rows->get($label) ?? $this->emptyTotals();
+        }
+
+        return $totals;
+    }
+
+    /**
+     * The aggregate columns behind a set of rollup totals.
+     *
+     * @return list<Expression>
+     */
+    private function totalsColumns(): array
+    {
         $sum = fn (string $column, string $alias) => DB::raw('COALESCE(SUM('.$this->col($column).'), 0) as '.$alias);
 
         $columns = [
@@ -1171,12 +1276,35 @@ class RecordService
             $columns[] = $sum($column, $column);
         }
 
-        return RecordRollup::query()
-            ->whereIn('project_id', $project->projectIds())
-            ->whereIn('type', (array) $types)
-            ->forPeriod($period, $from, $to)
-            ->select($columns)
-            ->first();
+        return $columns;
+    }
+
+    /**
+     * A totals row for a group the period holds no rows for.
+     */
+    private function emptyTotals(): object
+    {
+        $totals = [
+            'total' => 0,
+            'ok' => 0,
+            'client_error' => 0,
+            'server_error' => 0,
+            'neutral' => 0,
+            'hits' => 0,
+            'misses' => 0,
+            'writes' => 0,
+            'authed' => 0,
+            'sum_duration' => 0,
+            'count_duration' => 0,
+            'max_duration' => null,
+            'min_duration' => null,
+        ];
+
+        foreach (RollupWriter::latencyColumns() as $column) {
+            $totals[$column] = 0;
+        }
+
+        return (object) $totals;
     }
 
     /**
