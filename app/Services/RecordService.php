@@ -814,7 +814,8 @@ class RecordService
                 $sum('misses', 'misses'),
                 $sum('writes', 'writes'),
                 $sum('authed_count', 'authed'),
-                DB::raw('SUM('.$this->col('sum_duration').') / NULLIF(SUM('.$this->col('count_duration').'), 0) as avg_duration'),
+                $sum('sum_duration', 'sum_duration'),
+                $sum('count_duration', 'count_duration'),
             ])
             ->groupBy('minute')
             ->get();
@@ -835,29 +836,63 @@ class RecordService
                 $groupsByMinute ? Carbon::parse($row->slot)->format('Y-m-d H') : $row->slot => (int) $row->active_users,
             ]);
 
-        $results = $results->mapWithKeys(function ($row) use ($activeUsers, $groupsByMinute) {
-            $key = $this->seriesKey($row->minute, $groupsByMinute);
-            $userSlot = $groupsByMinute ? Carbon::parse($row->minute)->format('Y-m-d H') : $row->minute;
-            $authed = (int) $row->authed;
+        $slots = [];
 
-            return [$key => [
+        foreach ($results as $row) {
+            $key = $this->seriesKey($row->minute, $groupsByMinute, $period);
+            $userSlot = $groupsByMinute ? Carbon::parse($row->minute)->format('Y-m-d H') : $row->minute;
+
+            $slot = $slots[$key] ?? [
                 'minute' => $key,
-                'total' => (int) $row->total,
-                'ok' => (int) $row->ok,
-                'client_error' => (int) $row->client_error,
-                'server_error' => (int) $row->server_error,
-                'avg_duration' => round((float) $row->avg_duration, 2),
-                'hits' => (int) $row->hits,
-                'misses' => (int) $row->misses,
-                'writes' => (int) $row->writes,
-                'active_users' => $activeUsers[$userSlot] ?? 0,
-                'total_requests' => (int) $row->total,
-                'authed' => $authed,
-                'guest' => max((int) $row->total - $authed, 0),
-            ]];
+                'total' => 0,
+                'ok' => 0,
+                'client_error' => 0,
+                'server_error' => 0,
+                'avg_duration' => 0.0,
+                'hits' => 0,
+                'misses' => 0,
+                'writes' => 0,
+                'active_users' => 0,
+                'total_requests' => 0,
+                'authed' => 0,
+                'guest' => 0,
+                'sum_duration' => 0.0,
+                'count_duration' => 0,
+            ];
+
+            $slot['total'] += (int) $row->total;
+            $slot['ok'] += (int) $row->ok;
+            $slot['client_error'] += (int) $row->client_error;
+            $slot['server_error'] += (int) $row->server_error;
+            $slot['hits'] += (int) $row->hits;
+            $slot['misses'] += (int) $row->misses;
+            $slot['writes'] += (int) $row->writes;
+            $slot['authed'] += (int) $row->authed;
+            $slot['sum_duration'] += (float) $row->sum_duration;
+            $slot['count_duration'] += (int) $row->count_duration;
+
+            // One value per hour, so every minute folded into this slot reports
+            // the same count rather than one to add up.
+            $slot['active_users'] = max($slot['active_users'], $activeUsers[$userSlot] ?? 0);
+
+            $slots[$key] = $slot;
+        }
+
+        $series = collect($slots)->map(function (array $slot): array {
+            $slot['total_requests'] = $slot['total'];
+            $slot['guest'] = max($slot['total'] - $slot['authed'], 0);
+            // Recomputed from the summed numerator/denominator: averaging the
+            // per-minute averages would weight a quiet minute like a busy one.
+            $slot['avg_duration'] = $slot['count_duration'] > 0
+                ? round($slot['sum_duration'] / $slot['count_duration'], 2)
+                : 0.0;
+
+            unset($slot['sum_duration'], $slot['count_duration']);
+
+            return $slot;
         });
 
-        return $this->fillTimeSeriesGaps($results, $period, $from, $to);
+        return $this->fillTimeSeriesGaps($series, $period, $from, $to);
     }
 
     private function enrichUserPaginator(ProjectContext $project, LengthAwarePaginator $paginator): LengthAwarePaginator
