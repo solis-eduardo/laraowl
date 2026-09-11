@@ -999,6 +999,14 @@ class RecordService
         return $details;
     }
 
+    /**
+     * The uptime screen: a page of checks plus the summary above it.
+     *
+     * Both read the selected period. The summary used to count, average and
+     * sort the project's entire check history in four separate queries — work
+     * that grew with every check ever stored, for cards that say "last
+     * {period}" — and it is one indexed aggregate over the period now.
+     */
     public function getUptimeStats(ProjectContext $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
         if ($project instanceof Project && ! $project->hasUptimeMonitoring()) {
@@ -1013,37 +1021,37 @@ class RecordService
             ];
         }
 
-        $query = UptimeCheck::query()
+        $checks = UptimeCheck::query()
             ->whereIn('project_id', $project->projectIds())
             ->when($project->isAggregate(), fn ($q) => $q->with('project:id,name,slug'))
-            ->orderBy('checked_at', 'desc');
+            ->forPeriod($period, $from, $to)
+            ->orderBy('checked_at', 'desc')
+            ->paginate(50)
+            ->withQueryString();
 
-        if ($period && $period !== 'all') {
-            $minutes = match ($period) {
-                '1h' => 60,
-                '24h' => 1440,
-                '7d' => 10080,
-                '30d' => 43200,
-                default => 1440
-            };
-            $query->where('checked_at', '>=', now()->subMinutes($minutes));
-        }
+        $totals = UptimeCheck::query()
+            ->whereIn('project_id', $project->projectIds())
+            ->forPeriod($period, $from, $to)
+            ->selectRaw('COUNT(*) as total_checks')
+            ->selectRaw('SUM(CASE WHEN '.$this->col('status')." = 'up' THEN 1 ELSE 0 END) as up_checks")
+            ->selectRaw('AVG('.$this->col('response_time').') as avg_response_time')
+            ->selectRaw('MAX('.$this->col('checked_at').') as last_check')
+            ->toBase()
+            ->first();
 
-        $checks = $query->paginate(50)->withQueryString();
-
-        $totalChecks = UptimeCheck::query()->whereIn('project_id', $project->projectIds())->count();
-        $upChecks = UptimeCheck::query()->whereIn('project_id', $project->projectIds())->where('status', 'up')->count();
-
-        $stats = [
-            'uptime_percentage' => $totalChecks > 0 ? round(($upChecks / $totalChecks) * 100, 2) : 100,
-            'avg_response_time' => round(UptimeCheck::query()->whereIn('project_id', $project->projectIds())->avg('response_time') ?? 0, 2),
-            'last_check' => UptimeCheck::query()->whereIn('project_id', $project->projectIds())->latest('checked_at')->first(),
-            'total_checks' => $totalChecks,
-        ];
+        $totalChecks = (int) ($totals->total_checks ?? 0);
+        $lastCheck = $totals->last_check ?? null;
 
         return [
             'checks' => $checks,
-            'uptime_stats' => $stats,
+            'uptime_stats' => [
+                'uptime_percentage' => $totalChecks > 0
+                    ? round(((int) $totals->up_checks / $totalChecks) * 100, 2)
+                    : 100,
+                'avg_response_time' => round((float) ($totals->avg_response_time ?? 0), 2),
+                'last_check' => $lastCheck ? Carbon::parse($lastCheck)->toIso8601String() : null,
+                'total_checks' => $totalChecks,
+            ],
         ];
     }
 
