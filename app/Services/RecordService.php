@@ -13,6 +13,7 @@ use App\Models\RecordRollup;
 use App\Models\RecordUserBucket;
 use App\Models\UptimeCheck;
 use App\Support\ProjectContext;
+use App\Support\RollupCache;
 use Carbon\Carbon;
 use Closure;
 use Cron\CronExpression;
@@ -29,10 +30,20 @@ class RecordService
 {
     use BuildsRollupQueries;
 
+    public function __construct(private readonly RollupCache $cache) {}
+
     /**
      * Get aggregated stats for various record types.
      */
     public function getQuickStats(ProjectContext $project, ?string $period = null, ?string $from = null, ?string $to = null): array
+    {
+        return $this->cache->remember('quick-stats', $this->cacheContext($project, $period, $from, $to), fn () => $this->readQuickStats($project, $period, $from, $to));
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function readQuickStats(ProjectContext $project, ?string $period, ?string $from, ?string $to): array
     {
         $types = ['request', 'exception', 'query', 'queued-job', 'job-attempt', 'scheduled-task', 'cache-event', 'log', 'mail', 'notification', 'outgoing-request'];
 
@@ -118,6 +129,14 @@ class RecordService
      */
     public function getDashboardSummary(ProjectContext $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
+        return $this->cache->remember('dashboard-summary', $this->cacheContext($project, $period, $from, $to), fn () => $this->readDashboardSummary($project, $period, $from, $to));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function readDashboardSummary(ProjectContext $project, ?string $period, ?string $from, ?string $to): array
+    {
         $totals = $this->rollupTotalsByGroup($project, [
             'request' => ['request'],
             'exception' => ['exception'],
@@ -170,11 +189,34 @@ class RecordService
      */
     public function getDashboardCharts(ProjectContext $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
-        $series = $this->detailedTimeSeriesByType($project, ['request', 'exception'], $period, $from, $to);
+        return $this->cache->remember('dashboard-charts', $this->cacheContext($project, $period, $from, $to), function () use ($project, $period, $from, $to) {
+            $series = $this->detailedTimeSeriesByType($project, ['request', 'exception'], $period, $from, $to);
+
+            return [
+                'timeSeries' => $series['request'],
+                'exceptionTimeSeries' => $series['exception'],
+            ];
+        });
+    }
+
+    /**
+     * Everything a cached rollup read depends on. The project ids are sorted
+     * so that two scopes covering the same projects share an answer, and a
+     * custom range is pinned by its own bounds rather than by the word
+     * "custom".
+     *
+     * @return array<string, mixed>
+     */
+    private function cacheContext(ProjectContext $project, ?string $period, ?string $from, ?string $to): array
+    {
+        $projectIds = $project->projectIds();
+        sort($projectIds);
 
         return [
-            'timeSeries' => $series['request'],
-            'exceptionTimeSeries' => $series['exception'],
+            'projects' => $projectIds,
+            'period' => $period,
+            'from' => $from,
+            'to' => $to,
         ];
     }
 
