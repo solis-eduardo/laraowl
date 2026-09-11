@@ -14,6 +14,7 @@ use App\Models\RecordUserBucket;
 use App\Models\UptimeCheck;
 use App\Support\ProjectContext;
 use Carbon\Carbon;
+use Closure;
 use Cron\CronExpression;
 use Illuminate\Contracts\Database\Query\Expression;
 use Illuminate\Database\Eloquent\Builder;
@@ -708,14 +709,10 @@ class RecordService
      */
     protected function paginateRawRecords(ProjectContext $project, string $type, ?string $search, ?string $period, ?string $from, ?string $to, bool $searchMessage = false): LengthAwarePaginator
     {
-        $query = Record::query()
-            ->whereIn('project_id', $project->projectIds())
-            ->with('project:id,name,slug')
-            ->ofType($type)
-            ->forPeriod($period, $from, $to)
-            ->latest();
-
         if ($search) {
+            $query = $this->rawRecordsQuery($project, $type, $period, $from, $to)
+                ->whereIn('project_id', $project->projectIds());
+
             if ($searchMessage) {
                 $this->applyMessageSearch($query, $search);
             } else {
@@ -725,7 +722,95 @@ class RecordService
             return $query->paginate(50)->withQueryString();
         }
 
-        return $this->paginateWithKnownTotal($query, $this->rollupCount($project, $type, $period, $from, $to));
+        return $this->paginateWithKnownTotal(
+            fn (int $page, int $perPage) => $this->rawRecordsPage($project, $type, $period, $from, $to, $page, $perPage),
+            $this->rollupCount($project, $type, $period, $from, $to),
+        );
+    }
+
+    /**
+     * The shared shape of a raw record listing: newest first, with a stable
+     * tie-break so a record shared a timestamp with another cannot show up on
+     * two pages or on neither.
+     *
+     * @return Builder<Record>
+     */
+    protected function rawRecordsQuery(ProjectContext $project, string $type, ?string $period, ?string $from, ?string $to): Builder
+    {
+        return Record::query()
+            ->with('project:id,name,slug')
+            ->ofType($type)
+            ->forPeriod($period, $from, $to)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
+    }
+
+    /**
+     * One page of raw records, newest first, across every project in scope.
+     *
+     * A single project is an index walk: `(project_id, type, created_at)`
+     * delivers the rows already ordered, so the database reads a page and
+     * stops. The "All" scope cannot do that — an `IN` list on the leading
+     * column gives the engine one range per project and no way to merge them
+     * in order, so it reads every matching record of every project in the
+     * period and sorts the lot to hand back fifty rows.
+     *
+     * So the merge is done here instead: each project contributes the page's
+     * worth of its own newest ids through its own index, and only those few
+     * hundred candidates are ordered to pick the page. That is two queries
+     * rather than one, both bounded by the page, neither by the table.
+     *
+     * @return Collection<int, Record>
+     */
+    protected function rawRecordsPage(ProjectContext $project, string $type, ?string $period, ?string $from, ?string $to, int $page, int $perPage): Collection
+    {
+        $projectIds = $project->projectIds();
+
+        if (count($projectIds) <= 1) {
+            return $this->rawRecordsQuery($project, $type, $period, $from, $to)
+                ->whereIn('project_id', $projectIds)
+                ->forPage($page, $perPage)
+                ->get();
+        }
+
+        $candidates = null;
+        $depth = $page * $perPage;
+
+        foreach ($projectIds as $projectId) {
+            $newest = Record::query()
+                ->where('project_id', $projectId)
+                ->ofType($type)
+                ->forPeriod($period, $from, $to)
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->limit($depth)
+                ->select(['id', 'created_at'])
+                ->toBase();
+
+            // Each branch keeps its own `order by` and `limit` inside a
+            // subquery: on a compound select those clauses would otherwise
+            // read as belonging to the union as a whole.
+            $branch = DB::query()
+                ->select(['id', 'created_at'])
+                ->fromSub($newest, 'newest_'.$projectId);
+
+            $candidates = $candidates === null ? $branch : $candidates->unionAll($branch);
+        }
+
+        $ids = DB::query()
+            ->fromSub($candidates, 'candidates')
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->forPage($page, $perPage)
+            ->pluck('id');
+
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        return $this->rawRecordsQuery($project, $type, $period, $from, $to)
+            ->whereKey($ids->all())
+            ->get();
     }
 
     /**
@@ -1180,17 +1265,18 @@ class RecordService
     }
 
     /**
-     * Paginate raw records without asking the database to count them.
+     * Paginate raw records without asking the database to count them: the
+     * rollups already know how many there are.
      *
-     * @param  Builder<Record>|HasMany<Record, Project>  $query
+     * @param  Closure(int, int): Collection<int, Record>  $items
      */
-    protected function paginateWithKnownTotal($query, int $total, int $perPage = 50): LengthAwarePaginator
+    protected function paginateWithKnownTotal(Closure $items, int $total, int $perPage = 50): LengthAwarePaginator
     {
         $page = Paginator::resolveCurrentPage();
 
         $items = $total === 0
             ? collect()
-            : $query->forPage($page, $perPage)->get();
+            : $items($page, $perPage);
 
         return new LengthAwarePaginator($items, $total, $perPage, $page, [
             'path' => Paginator::resolveCurrentPath(),
