@@ -284,7 +284,7 @@ class RecordService
         $isRequest = $this->col('type')." = 'request'";
         $isException = $this->col('type')." = 'exception'";
 
-        $users = RecordUserBucket::query()
+        $query = RecordUserBucket::query()
             ->whereIn('project_id', $project->projectIds())
             ->forPeriod($period, $from, $to)
             ->select([
@@ -298,9 +298,16 @@ class RecordService
                 DB::raw('MAX('.$this->col('last_seen_at').') as last_seen'),
             ])
             ->groupBy('user_key')
-            ->orderBy('last_seen', 'desc')
-            ->paginate(20)
-            ->withQueryString();
+            ->orderBy('last_seen', 'desc');
+
+        // Counted as distinct users rather than by asking the database how
+        // many rows the grouping produces: `paginate()` answers that by
+        // running the whole aggregate a second time inside a subquery.
+        $users = $this->paginateWithKnownTotal(
+            fn (int $page, int $perPage) => $query->clone()->forPage($page, $perPage)->get(),
+            $this->distinctUsers($project, null, $period, $from, $to),
+            perPage: 20,
+        );
 
         return [
             'users' => $this->enrichUserPaginator($project, $users),
@@ -1346,13 +1353,16 @@ class RecordService
     }
 
     /**
-     * Distinct groups of a type over the period, straight off the group rollups.
+     * Distinct groups of the given type(s) over the period, straight off the
+     * group rollups.
+     *
+     * @param  string|list<string>  $types
      */
-    protected function distinctGroups(ProjectContext $project, string $type, ?string $period, ?string $from, ?string $to, string $column = 'group_key'): int
+    protected function distinctGroups(ProjectContext $project, string|array $types, ?string $period, ?string $from, ?string $to, string $column = 'group_key'): int
     {
         return RecordGroupRollup::query()
             ->whereIn('project_id', $project->projectIds())
-            ->where('type', $type)
+            ->whereIn('type', (array) $types)
             ->forPeriod($period, $from, $to)
             ->distinct()
             ->count($column);
@@ -1559,21 +1569,26 @@ class RecordService
 
         $orderBy = $sortMap[$sort] ?? $sort;
 
-        return RecordGroupRollup::query()
+        $query = RecordGroupRollup::query()
             ->whereIn('project_id', $project->projectIds())
             ->whereIn('type', (array) $types)
             ->forPeriod($period, $from, $to)
             ->select($columns)
             ->groupBy('group_key')
-            ->orderBy($orderBy, $direction)
-            ->paginate(20)
-            ->withQueryString()
-            ->through(function ($row) {
+            ->orderBy($orderBy, $direction);
+
+        // Counted off the distinct group keys rather than asking the
+        // database how many rows the grouping produces: `paginate()` answers
+        // that by running the whole aggregate a second time inside a
+        // subquery.
+        return $this->paginateWithKnownTotal(
+            fn (int $page, int $perPage) => $query->clone()->forPage($page, $perPage)->get()->each(function ($row) {
                 $row->p95_duration = $this->p95Duration($row);
                 $row->avg_duration = round((float) $row->avg_duration, 2);
-
-                return $row;
-            });
+            }),
+            $this->distinctGroups($project, $types, $period, $from, $to),
+            perPage: 20,
+        );
     }
 
     /**
@@ -1601,13 +1616,15 @@ class RecordService
     }
 
     /**
-     * Distinct users seen for a type over a period.
+     * Distinct users seen over a period, optionally narrowed to given types.
+     *
+     * @param  string|list<string>|null  $types
      */
-    protected function distinctUsers(ProjectContext $project, string $type, ?string $period = null, ?string $from = null, ?string $to = null): int
+    protected function distinctUsers(ProjectContext $project, string|array|null $types = null, ?string $period = null, ?string $from = null, ?string $to = null): int
     {
         return RecordUserBucket::query()
             ->whereIn('project_id', $project->projectIds())
-            ->where('type', $type)
+            ->when($types !== null, fn ($query) => $query->whereIn('type', (array) $types))
             ->forPeriod($period, $from, $to)
             ->distinct()
             ->count('user_key');
