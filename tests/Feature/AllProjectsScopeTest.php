@@ -62,7 +62,17 @@ test('a team member views the aggregate dashboard, uptime, issues and requests s
             ->where('uptime_status.last_check', $olderCheck->toIso8601String())
         );
 
+    // The summary reads the selected period, like the cards above it say: the
+    // default hour sees only the recent check, a day sees both.
     $this->get(route('uptime', ['current_team' => $team->slug, 'project' => TeamProjectScope::SLUG]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('projects/uptime/index')
+            ->where('uptime_stats.total_checks', 1)
+            ->where('uptime_stats.uptime_percentage', 100)
+        );
+
+    $this->get(route('uptime', ['current_team' => $team->slug, 'project' => TeamProjectScope::SLUG, 'period' => '24h']))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('projects/uptime/index')
